@@ -3,6 +3,13 @@ use rusqlite::{params, Connection, OptionalExtension, Row};
 
 use crate::models::{AppSettings, GenerationDetail, GenerationSummary, HistoryPage};
 
+#[derive(Debug, Clone)]
+pub struct ResumableGeneration {
+    pub id: i64,
+    pub task_id: String,
+    pub platform: String,
+}
+
 pub fn init_schema(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         r#"
@@ -362,6 +369,31 @@ pub fn list_active_generations(conn: &Connection) -> Result<Vec<GenerationSummar
 
     let items = stmt
         .query_map([], row_to_summary)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
+    Ok(items)
+}
+
+pub fn list_resumable_generations(conn: &Connection) -> Result<Vec<ResumableGeneration>> {
+    let mut stmt = conn.prepare(
+        r#"
+        SELECT id, task_id, platform
+        FROM generations
+        WHERE status IN ('queued', 'running')
+          AND task_id IS NOT NULL
+          AND task_id != ''
+        ORDER BY created_at ASC
+        "#,
+    )?;
+
+    let items = stmt
+        .query_map([], |row| {
+            Ok(ResumableGeneration {
+                id: row.get(0)?,
+                task_id: row.get(1)?,
+                platform: row.get(2)?,
+            })
+        })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
 
     Ok(items)

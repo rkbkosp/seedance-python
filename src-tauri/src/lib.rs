@@ -235,23 +235,7 @@ async fn create_generation(
     let app_clone = app.clone();
     let api_key = settings.api_key;
     tauri::async_runtime::spawn(async move {
-        if let Err(error) = run_generation_job(app_clone.clone(), state_clone.clone(), api_key, job).await {
-            let timestamp = now_string();
-            if let Ok(conn) = state_clone.db.lock() {
-                let _ = db::finalize_generation(
-                    &conn,
-                    generation_id,
-                    "failed",
-                    Some("failed"),
-                    None,
-                    None,
-                    None,
-                    Some(&error.to_string()),
-                    &timestamp,
-                );
-            }
-            emit_generation_updated(&app_clone, generation_id);
-        }
+        run_generation_job(app_clone.clone(), state_clone.clone(), api_key, job).await;
     });
 
     let conn = state.db.lock().map_err(lock_error)?;
@@ -300,35 +284,52 @@ async fn run_generation_job(
     state: AppState,
     api_key: String,
     job: GenerationJob,
-) -> Result<()> {
-    let client = SeedanceClient::new(job.resolved.base_url.clone(), &api_key)?;
-    let payload = build_payload(
-        &job.resolved.model,
-        &job.request,
-        job.first_frame_path.as_deref(),
-        job.input_last_frame_path.as_deref(),
-        &job.reference_paths,
-    )
-    .await?;
+) {
+    let result = async {
+        let client = SeedanceClient::new(job.resolved.base_url.clone(), &api_key)?;
+        let payload = build_payload(
+            &job.resolved.model,
+            &job.request,
+            job.first_frame_path.as_deref(),
+            job.input_last_frame_path.as_deref(),
+            &job.reference_paths,
+        )
+        .await?;
 
-    let create_response = client.create_task(payload).await?;
-    let task_id = extract_task_id(&create_response)?;
+        let create_response = client.create_task(payload).await?;
+        let task_id = extract_task_id(&create_response)?;
 
-    {
-        let conn = state
-            .db
-            .lock()
-            .map_err(|error| anyhow!(error.to_string()))?;
-        db::set_generation_running(
-            &conn,
-            job.generation_id,
-            &task_id,
-            Some("starting"),
-            &now_string(),
-        )?;
+        {
+            let conn = state
+                .db
+                .lock()
+                .map_err(|error| anyhow!(error.to_string()))?;
+            db::set_generation_running(
+                &conn,
+                job.generation_id,
+                &task_id,
+                Some("starting"),
+                &now_string(),
+            )?;
+        }
+        emit_generation_updated(&app, job.generation_id);
+
+        poll_generation_task(app.clone(), state.clone(), client, job.generation_id, task_id).await
     }
-    emit_generation_updated(&app, job.generation_id);
+    .await;
 
+    if let Err(error) = result {
+        finalize_generation_failure(&app, &state, job.generation_id, &error.to_string());
+    }
+}
+
+async fn poll_generation_task(
+    app: AppHandle,
+    state: AppState,
+    client: SeedanceClient,
+    generation_id: i64,
+    task_id: String,
+) -> Result<()> {
     loop {
         let task = client.get_task(&task_id).await?;
         let status = extract_status(&task);
@@ -342,20 +343,20 @@ async fn run_generation_job(
                 .map_err(|error| anyhow!(error.to_string()))?;
             db::update_generation_progress(
                 &conn,
-                job.generation_id,
+                generation_id,
                 &status,
                 progress.as_deref(),
                 error_message.as_deref(),
                 &now_string(),
             )?;
         }
-        emit_generation_updated(&app, job.generation_id);
+        emit_generation_updated(&app, generation_id);
 
         if matches!(status.as_str(), "succeeded" | "failed" | "cancelled" | "expired") {
             if status == "succeeded" {
                 let video_path = if let Some(video_url) = extract_video_url(&task) {
                     let extension = filename_extension_from_url(&video_url, "mp4");
-                    let file_name = output_file_name(job.generation_id, Some(&task_id), &extension);
+                    let file_name = output_file_name(generation_id, Some(&task_id), &extension);
                     let target = asset_subpath(&state.videos_dir, &file_name);
                     if let Some(parent) = target.parent() {
                         fs::create_dir_all(parent).await?;
@@ -368,7 +369,7 @@ async fn run_generation_job(
 
                 let returned_last_frame_path = if let Some(last_frame_url) = extract_last_frame_url(&task) {
                     let extension = filename_extension_from_url(&last_frame_url, "jpg");
-                    let file_name = format!("{}-returned-last-frame.{}", job.generation_id, extension);
+                    let file_name = format!("{generation_id}-returned-last-frame.{extension}");
                     let target = asset_subpath(&state.images_dir, &file_name);
                     if let Some(parent) = target.parent() {
                         fs::create_dir_all(parent).await?;
@@ -381,7 +382,7 @@ async fn run_generation_job(
 
                 let thumbnail_path = create_thumbnail(
                     &state,
-                    job.generation_id,
+                    generation_id,
                     video_path.as_deref(),
                     returned_last_frame_path.as_deref(),
                 )
@@ -394,7 +395,7 @@ async fn run_generation_job(
                         .map_err(|error| anyhow!(error.to_string()))?;
                     db::finalize_generation(
                         &conn,
-                        job.generation_id,
+                        generation_id,
                         "succeeded",
                         progress.as_deref(),
                         video_path.as_ref().map(path_to_string).as_deref(),
@@ -411,7 +412,7 @@ async fn run_generation_job(
                     .map_err(|error| anyhow!(error.to_string()))?;
                 db::finalize_generation(
                     &conn,
-                    job.generation_id,
+                    generation_id,
                     &status,
                     progress.as_deref(),
                     None,
@@ -422,7 +423,7 @@ async fn run_generation_job(
                 )?;
             }
 
-            emit_generation_updated(&app, job.generation_id);
+            emit_generation_updated(&app, generation_id);
             break;
         }
 
@@ -435,6 +436,93 @@ async fn run_generation_job(
         };
         let duration = if poll_interval > 0.0 { poll_interval } else { 3.0 };
         sleep(Duration::from_millis((duration * 1000.0) as u64)).await;
+    }
+
+    Ok(())
+}
+
+fn finalize_generation_failure(app: &AppHandle, state: &AppState, generation_id: i64, message: &str) {
+    let timestamp = now_string();
+    if let Ok(conn) = state.db.lock() {
+        let _ = db::finalize_generation(
+            &conn,
+            generation_id,
+            "failed",
+            Some("failed"),
+            None,
+            None,
+            None,
+            Some(message),
+            &timestamp,
+        );
+    }
+    emit_generation_updated(app, generation_id);
+}
+
+fn spawn_resumable_generation_monitor(
+    app: AppHandle,
+    state: AppState,
+    api_key: String,
+    generation_id: i64,
+    task_id: String,
+    resolved: ResolvedPlatform,
+) {
+    tauri::async_runtime::spawn(async move {
+        match SeedanceClient::new(resolved.base_url, &api_key) {
+            Ok(client) => {
+                if let Err(error) =
+                    poll_generation_task(app.clone(), state.clone(), client, generation_id, task_id).await
+                {
+                    finalize_generation_failure(&app, &state, generation_id, &error.to_string());
+                }
+            }
+            Err(error) => finalize_generation_failure(&app, &state, generation_id, &error.to_string()),
+        }
+    });
+}
+
+fn resume_pending_generations(app: &AppHandle, state: &AppState) -> Result<()> {
+    let settings = {
+        let conn = state.db.lock().map_err(|error| anyhow!(error.to_string()))?;
+        db::load_settings(&conn)?
+    };
+
+    if settings.api_key.trim().is_empty() {
+        return Ok(());
+    }
+
+    let resumable = {
+        let conn = state.db.lock().map_err(|error| anyhow!(error.to_string()))?;
+        db::list_resumable_generations(&conn)?
+    };
+
+    for item in resumable {
+        let defaults = platform_defaults(&item.platform)?;
+        let resolved = if item.platform == settings.platform {
+            ResolvedPlatform {
+                base_url: settings
+                    .base_url
+                    .clone()
+                    .filter(|value| !value.trim().is_empty())
+                    .unwrap_or(defaults.base_url),
+                model: settings
+                    .model
+                    .clone()
+                    .filter(|value| !value.trim().is_empty())
+                    .unwrap_or(defaults.model),
+            }
+        } else {
+            defaults
+        };
+
+        spawn_resumable_generation_monitor(
+            app.clone(),
+            state.clone(),
+            settings.api_key.clone(),
+            item.id,
+            item.task_id,
+            resolved,
+        );
     }
 
     Ok(())
@@ -626,7 +714,8 @@ pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
             let state = build_app_state(app)?;
-            app.manage(state);
+            app.manage(state.clone());
+            resume_pending_generations(app.handle(), &state)?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

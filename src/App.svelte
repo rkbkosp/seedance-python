@@ -244,6 +244,11 @@
     referenceImages = [...referenceImages];
   }
 
+  function replaceReferenceImages(nextAssets: FileInputPayload[]): void {
+    referenceImages.forEach((asset) => revokePreview(asset));
+    referenceImages = nextAssets;
+  }
+
   function usePrompt(prompt: string): void {
     form.prompt = prompt;
     saveDraftPrompt(prompt);
@@ -264,12 +269,42 @@
     revokePreview(inputLastFrame);
     firstFrame = storedAsset(detail.firstFramePath);
     inputLastFrame = storedAsset(detail.inputLastFramePath);
-    referenceImages = detail.referenceImages.map((path) => ({
+    replaceReferenceImages(detail.referenceImages.map((path) => ({
       existingPath: path,
       fileName: path.split(/[\\/]/).pop() ?? "reference",
       previewUrl: assetSrc(path),
-    }));
+    })));
     setFeedback("Visual references loaded into composer");
+  }
+
+  function applyGenerationParams(detail: GenerationDetail): void {
+    try {
+      const params = JSON.parse(detail.paramsJson) as Record<string, unknown>;
+      form = {
+        ...form,
+        ratio: typeof params.ratio === "string" ? params.ratio : form.ratio,
+        resolution: typeof params.resolution === "string" ? params.resolution : form.resolution,
+        duration: typeof params.duration === "number" ? params.duration : form.duration,
+        frames: typeof params.frames === "number" ? String(params.frames) : "",
+        returnLastFrame:
+          typeof params.returnLastFrame === "boolean" ? params.returnLastFrame : form.returnLastFrame,
+        draft: typeof params.draft === "boolean" ? params.draft : form.draft,
+        cameraFixed: typeof params.cameraFixed === "boolean" ? params.cameraFixed : form.cameraFixed,
+        watermark: typeof params.watermark === "boolean" ? params.watermark : form.watermark,
+        generateAudio:
+          typeof params.generateAudio === "boolean" ? params.generateAudio : form.generateAudio,
+        seed: typeof params.seed === "number" ? String(params.seed) : "",
+      };
+    } catch {
+      // Keep the current composer settings if old records stored invalid JSON.
+    }
+  }
+
+  function applyGenerationToComposer(detail: GenerationDetail): void {
+    usePrompt(detail.prompt);
+    applyGenerationParams(detail);
+    reuseAssets(detail);
+    setFeedback(`Generation #${detail.id} loaded into the composer`);
   }
 
   function updatePromptDraft(value: string): void {
@@ -293,6 +328,40 @@
       JSON.stringify({ kind: "asset", path, slot }),
     );
     event.dataTransfer.setData("text/plain", path);
+  }
+
+  function fileNameFromPath(path: string): string {
+    return path.split(/[\\/]/).pop() ?? "seedance-asset";
+  }
+
+  function mimeFromPath(path: string): string {
+    const lower = path.toLowerCase();
+    if (lower.endsWith(".mp4")) return "video/mp4";
+    if (lower.endsWith(".mov")) return "video/quicktime";
+    if (lower.endsWith(".webm")) return "video/webm";
+    if (lower.endsWith(".m4v")) return "video/x-m4v";
+    return "application/octet-stream";
+  }
+
+  function toFileUri(path: string): string {
+    const normalized = path.replace(/\\/g, "/");
+    const withLeadingSlash = /^[a-zA-Z]:\//.test(normalized)
+      ? `/${normalized}`
+      : normalized.startsWith("/")
+        ? normalized
+        : `/${normalized}`;
+    return encodeURI(`file://${withLeadingSlash}`);
+  }
+
+  function startVideoExportDrag(event: DragEvent, path: string): void {
+    if (!event.dataTransfer) return;
+    const fileName = fileNameFromPath(path);
+    const fileUri = toFileUri(path);
+    const mime = mimeFromPath(path);
+    event.dataTransfer.effectAllowed = "copyLink";
+    event.dataTransfer.setData("text/plain", path);
+    event.dataTransfer.setData("text/uri-list", fileUri);
+    event.dataTransfer.setData("DownloadURL", `${mime}:${fileName}:${fileUri}`);
   }
 
   function parseCustomDrop(event: DragEvent): { kind: string; prompt?: string; path?: string } | null {
@@ -413,6 +482,22 @@
     }
   }
 
+  function startSummaryVideoExportDrag(event: DragEvent, item: GenerationSummary): void {
+    if (item.videoPath) {
+      startVideoExportDrag(event, item.videoPath);
+    }
+  }
+
+  async function reuseGenerationById(generationId: number): Promise<void> {
+    try {
+      const detail = await invoke<GenerationDetail>("get_generation", { generationId });
+      selectedGeneration = detail;
+      applyGenerationToComposer(detail);
+    } catch (error) {
+      setError(String(error));
+    }
+  }
+
   function loadSelectedPrompt(): void {
     if (selectedGeneration) {
       usePrompt(selectedGeneration.prompt);
@@ -425,9 +510,21 @@
     }
   }
 
+  function reuseSelectedGeneration(): void {
+    if (selectedGeneration) {
+      applyGenerationToComposer(selectedGeneration);
+    }
+  }
+
   function openSelectedVideo(): void {
     if (selectedGeneration?.videoPath) {
       void openInSystem(selectedGeneration.videoPath);
+    }
+  }
+
+  function startSelectedVideoExportDrag(event: DragEvent): void {
+    if (selectedGeneration?.videoPath) {
+      startVideoExportDrag(event, selectedGeneration.videoPath);
     }
   }
 
@@ -441,6 +538,32 @@
     if (path) {
       startAssetDrag(event, path, slot);
     }
+  }
+
+  function loadSelectedAssetToSlot(slot: "first" | "last" | "reference", path: string | null | undefined): void {
+    loadAssetIntoSlot(slot, path);
+  }
+
+  function loadAssetIntoSlot(slot: "first" | "last" | "reference", path: string | null | undefined): void {
+    const asset = storedAsset(path);
+    if (!asset) return;
+
+    if (slot === "first") {
+      revokePreview(firstFrame);
+      firstFrame = asset;
+      setFeedback("First frame loaded from history");
+      return;
+    }
+
+    if (slot === "last") {
+      revokePreview(inputLastFrame);
+      inputLastFrame = asset;
+      setFeedback("Last frame loaded from history");
+      return;
+    }
+
+    referenceImages = [...referenceImages, asset];
+    setFeedback("Reference image appended from history");
   }
 </script>
 
@@ -738,10 +861,12 @@
           <article class="history-card">
             <button
               class="history-media"
+              draggable={Boolean(item.videoPath)}
               on:mouseenter={() => armPreview(item.id)}
               on:mouseleave={clearPreview}
               on:focus={() => armPreview(item.id)}
               on:blur={clearPreview}
+              on:dragstart={(event) => startSummaryVideoExportDrag(event, item)}
               on:click={() => openDetail(item.id)}
             >
               <span class={`status-chip floating status-${item.status}`}>{statusLabel(item.status)}</span>
@@ -759,15 +884,30 @@
                 <time>{displayDate(item.createdAt)}</time>
                 <span>{item.referenceCount} refs</span>
               </div>
-              <p class="history-prompt">{item.promptSummary}</p>
+              <button
+                class="history-prompt"
+                draggable="true"
+                on:click={() => usePrompt(item.prompt)}
+                on:dragstart={(event) => startPromptDrag(event, item.prompt)}
+              >
+                {item.promptSummary}
+              </button>
               <p class="history-progress">{item.progressText ?? item.errorMessage ?? "Ready for reuse"}</p>
             </div>
 
             <div class="history-actions">
+              <button class="primary-button subtle" on:click={() => reuseGenerationById(item.id)}>Reuse all</button>
               <button class="secondary-button" on:click={() => usePrompt(item.prompt)}>Use prompt</button>
               <button class="secondary-button" on:click={() => openDetail(item.id)}>Details</button>
               {#if item.videoPath}
                 <button class="secondary-button" on:click={() => openSummaryVideo(item)}>Show file</button>
+                <button
+                  class="secondary-button"
+                  draggable="true"
+                  on:dragstart={(event) => startSummaryVideoExportDrag(event, item)}
+                >
+                  Drag file out
+                </button>
               {/if}
             </div>
           </article>
@@ -797,23 +937,36 @@
 
         <div class="drawer-section">
           <div class="drawer-tools">
+            <button class="primary-button subtle" on:click={reuseSelectedGeneration}>
+              Reuse all
+            </button>
             <button class="primary-button" on:click={loadSelectedPrompt}>Load prompt</button>
             <button class="secondary-button" on:click={loadSelectedAssets}>Load assets</button>
             {#if selectedGeneration.videoPath}
               <button class="secondary-button" on:click={openSelectedVideo}>
                 Show video file
               </button>
+              <button
+                class="secondary-button"
+                draggable="true"
+                on:dragstart={startSelectedVideoExportDrag}
+              >
+                Drag video file out
+              </button>
             {/if}
           </div>
 
           <div
             class="prompt-card"
-            role="note"
-            aria-label="Drag prompt back into composer"
+            role="button"
+            tabindex="0"
+            aria-label="Load or drag prompt back into composer"
             draggable="true"
+            on:click={loadSelectedPrompt}
+            on:keydown={(event) => (event.key === "Enter" || event.key === " ") && loadSelectedPrompt()}
             on:dragstart={startSelectedPromptDrag}
           >
-            <span class="prompt-label">Drag this prompt back into the composer.</span>
+            <span class="prompt-label">Click to load or drag this prompt back into the composer.</span>
             <p>{selectedGeneration.prompt}</p>
           </div>
         </div>
@@ -836,6 +989,7 @@
                 <button
                   class="asset-button"
                   draggable="true"
+                  on:click={() => loadSelectedAssetToSlot("first", selectedGeneration?.firstFramePath)}
                   on:dragstart={(event) => startSelectedAssetDrag(event, selectedGeneration?.firstFramePath, "first")}
                 >
                   <img alt="First frame" src={assetSrc(selectedGeneration.firstFramePath) ?? undefined} />
@@ -851,6 +1005,7 @@
                 <button
                   class="asset-button"
                   draggable="true"
+                  on:click={() => loadSelectedAssetToSlot("last", selectedGeneration?.inputLastFramePath)}
                   on:dragstart={(event) =>
                     startSelectedAssetDrag(event, selectedGeneration?.inputLastFramePath, "last")}
                 >
@@ -864,7 +1019,18 @@
             <div class="media-stack">
               <span>Returned last frame</span>
               {#if selectedGeneration.returnedLastFramePath}
-                <img alt="Returned last frame" src={assetSrc(selectedGeneration.returnedLastFramePath) ?? undefined} />
+                <button
+                  class="asset-button"
+                  draggable="true"
+                  on:click={() => loadSelectedAssetToSlot("last", selectedGeneration?.returnedLastFramePath)}
+                  on:dragstart={(event) =>
+                    startSelectedAssetDrag(event, selectedGeneration?.returnedLastFramePath, "last")}
+                >
+                  <img
+                    alt="Returned last frame"
+                    src={assetSrc(selectedGeneration.returnedLastFramePath) ?? undefined}
+                  />
+                </button>
               {:else}
                 <div class="media-fallback">Not returned</div>
               {/if}
@@ -878,6 +1044,7 @@
               <button
                 class="asset-button"
                 draggable="true"
+                on:click={() => loadAssetIntoSlot("reference", imagePath)}
                 on:dragstart={(event) => startAssetDrag(event, imagePath, "reference")}
               >
                 <img alt="Reference asset" src={assetSrc(imagePath) ?? undefined} />
@@ -1144,6 +1311,12 @@
     font-weight: 700;
   }
 
+  .primary-button.subtle {
+    background: linear-gradient(135deg, rgba(109, 226, 187, 0.24), rgba(150, 242, 208, 0.18));
+    color: var(--text);
+    border: 1px solid rgba(109, 226, 187, 0.26);
+  }
+
   .secondary-button,
   .upload-chip,
   .link-button,
@@ -1331,6 +1504,11 @@
 
   .history-prompt {
     margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--text);
+    text-align: left;
     line-height: 1.45;
   }
 
@@ -1367,6 +1545,7 @@
   .drawer-backdrop {
     position: absolute;
     inset: 0;
+    border: 0;
     background: rgba(4, 10, 9, 0.58);
   }
 
@@ -1446,6 +1625,7 @@
   .asset-button {
     padding: 0;
     overflow: hidden;
+    cursor: pointer;
   }
 
   .media-fallback {

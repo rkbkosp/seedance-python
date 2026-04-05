@@ -18,11 +18,16 @@
         "height": 980,
         "minWidth": 1160,
         "minHeight": 820,
-        "resizable": true
+        "resizable": true,
+        "dragDropEnabled": false
       }
     ],
     "security": {
-      "csp": null
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["$APPDATA/**", "$APPLOCALDATA/**"]
+      }
     }
   },
   "bundle": {
@@ -31,4 +36,3 @@
     "icon": []
   }
 }
-
