@@ -21,7 +21,7 @@
   const DEFAULT_SETTINGS: AppSettings = {
     apiKey: "",
     platform: "volc",
-    model: "",
+    model: "doubao-seedance-1-5-pro-251215",
     baseUrl: "",
     pollInterval: 3,
     billingAccessKey: "",
@@ -32,6 +32,11 @@
 
   const ratioOptions = ["16:9", "4:3", "1:1", "3:4", "9:16", "21:9", "adaptive"];
   const resolutionOptions = ["480p", "720p", "1080p"];
+  const modelOptions = [
+    "doubao-seedance-1-5-pro-251215",
+    "doubao-seedance-1-0-pro-250528",
+    "doubao-seedance-1-0-pro-fast-251015",
+  ];
   const durationOptions = [4, 5, 6, 7, 8, 9, 10, 11, 12];
 
   let settings: AppSettings = { ...DEFAULT_SETTINGS };
@@ -133,7 +138,7 @@
     return {
       ...DEFAULT_SETTINGS,
       ...next,
-      model: next.model ?? "",
+      model: next.model || modelOptions[0],
       baseUrl: next.baseUrl ?? "",
     };
   }
@@ -141,7 +146,7 @@
   function settingsFingerprint(next: AppSettings): string {
     return JSON.stringify({
       ...next,
-      model: next.model ?? "",
+      model: next.model || modelOptions[0],
       baseUrl: next.baseUrl ?? "",
     });
   }
@@ -663,7 +668,7 @@
   }
 
   function balanceStatusText(): string {
-    if (!isBillingConfigured()) return "请先配置 Billing AK/SK，才能启用余额跟踪。";
+    if (!isBillingConfigured()) return "";
     if (hasArrears()) {
       return balance.errorMessage
         ? `账户存在欠费。最近一次刷新失败：${balance.errorMessage}`
@@ -791,16 +796,18 @@
           </button>
         </div>
 
-        <div class={`balance-banner ${hasArrears() ? "danger" : isLowBalance() ? "warn" : "ok"}`}>
-          <strong>{balanceStatusText()}</strong>
-          <span>
-            {#if balance.updatedAt}
-              更新时间：{displayDate(balance.updatedAt)}
-            {:else}
-              等待首次同步
-            {/if}
-          </span>
-        </div>
+        {#if isBillingConfigured() || balance.updatedAt || balance.errorMessage}
+          <div class={`balance-banner ${hasArrears() ? "danger" : isLowBalance() ? "warn" : "ok"}`}>
+            <strong>{balanceStatusText()}</strong>
+            <span>
+              {#if balance.updatedAt}
+                更新时间：{displayDate(balance.updatedAt)}
+              {:else}
+                等待首次同步
+              {/if}
+            </span>
+          </div>
+        {/if}
 
         <div class="balance-grid">
           <div class="balance-card featured">
@@ -808,24 +815,8 @@
             <strong>{formatAmount(balance.availableBalance)}</strong>
           </div>
           <div class="balance-card">
-            <span class="meta-label">现金余额</span>
-            <strong>{formatAmount(balance.cashBalance)}</strong>
-          </div>
-          <div class="balance-card">
             <span class="meta-label">欠费金额</span>
             <strong>{formatAmount(balance.arrearsBalance)}</strong>
-          </div>
-          <div class="balance-card">
-            <span class="meta-label">信用额度</span>
-            <strong>{formatAmount(balance.creditLimit)}</strong>
-          </div>
-          <div class="balance-card">
-            <span class="meta-label">冻结金额</span>
-            <strong>{formatAmount(balance.freezeAmount)}</strong>
-          </div>
-          <div class="balance-card">
-            <span class="meta-label">账户 ID</span>
-            <strong>{balance.accountId ?? "--"}</strong>
           </div>
         </div>
 
@@ -838,49 +829,14 @@
           <span>Billing SecretKey</span>
           <input bind:value={settings.billingSecretKey} placeholder="输入火山计费 SecretKey" type="password" />
         </div>
-
-        <div class="field">
-          <span>Billing Security Token</span>
-          <input bind:value={settings.billingSecurityToken} placeholder="可选：临时凭证时填写" type="password" />
-        </div>
-
         <div class="field">
           <span>低余额告警阈值</span>
           <input bind:value={settings.lowBalanceThreshold} min="0" step="1" type="number" />
         </div>
-
-        <p class="settings-note">
-          若使用 API Explorer 的临时凭证，除了 AccessKey 和 SecretKey，还需要把 `X-Security-Token` 一并填入。
-        </p>
       </section>
     </aside>
 
     <main class="history-surface">
-      <section class="surface-card surface-header">
-        <div>
-          <p class="eyebrow">Seedance Studio</p>
-          <h1>历史任务</h1>
-          <p class="surface-subtitle">主界面直接浏览历史任务，输入区固定悬浮在底部，像聊天一样连续创作。</p>
-        </div>
-        <div class="surface-meta">
-          <div class="meta-box">
-            <span class="meta-label">数据目录</span>
-            <span class="meta-value">{dataDir || "正在初始化..."}</span>
-          </div>
-          <div class="meta-box">
-            <span class="meta-label">素材目录</span>
-            <span class="meta-value">{artifactsDir || "正在准备存储..."}</span>
-          </div>
-          <div class:success={Boolean(feedback)} class:error={Boolean(errorMessage)} class="meta-box status-box">
-            {#if errorMessage}
-              <span>{errorMessage}</span>
-            {:else}
-              <span>{feedback}</span>
-            {/if}
-          </div>
-        </div>
-      </section>
-
       {#if activeTasks.length}
         <section class="surface-card active-strip">
           {#each activeTasks as item}
@@ -894,6 +850,10 @@
       {/if}
 
       <section class="surface-card history-toolbar">
+        <div class="toolbar-title">
+          <p class="panel-kicker minor">历史</p>
+          <h2>任务记录</h2>
+        </div>
         <select bind:value={statusFilter} on:change={(event) => changeFilter((event.currentTarget as HTMLSelectElement).value)}>
           <option value="">全部状态</option>
           <option value="queued">已排队</option>
@@ -1001,15 +961,12 @@
 
         <div class="field">
           <span>模型覆盖</span>
-          <input bind:value={settings.model} placeholder="可选" type="text" />
+          <select bind:value={settings.model}>
+            {#each modelOptions as option}
+              <option value={option}>{option}</option>
+            {/each}
+          </select>
         </div>
-
-        <div class="field">
-          <span>Base URL 覆盖</span>
-          <input bind:value={settings.baseUrl} placeholder="可选" type="text" />
-        </div>
-
-        <p class="settings-note">这里的配置会自动持久化，你也可以随时手动保存一遍。</p>
       </section>
 
       <section class="sidebar-card">
@@ -1138,16 +1095,6 @@
             <input bind:checked={form.generateAudio} type="checkbox" />
             <span>生成音频</span>
           </label>
-
-          <div class="mini-lock">水印：默认关闭</div>
-
-          <div class="mini-info">
-            {#if referenceImages.length}
-              <span>参考图 {referenceImages.length} 张已载入</span>
-            {:else}
-              <span>当前未载入参考图</span>
-            {/if}
-          </div>
         </div>
       </div>
     </div>
@@ -1319,7 +1266,7 @@
 
   .workspace-shell {
     display: grid;
-    grid-template-columns: 280px minmax(0, 1fr) 300px;
+    grid-template-columns: 220px minmax(0, 1fr) 240px;
     gap: 1rem;
     align-items: start;
     min-height: calc(100vh - 2rem);
@@ -1370,20 +1317,14 @@
     font-size: 0.68rem;
   }
 
-  h1,
   h2 {
     margin: 0;
     color: #172b4d;
     font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
   }
 
-  h1 {
-    font-size: clamp(2rem, 2.8vw, 3rem);
-    line-height: 1.02;
-  }
-
   h2 {
-    font-size: 1.18rem;
+    font-size: 1rem;
     line-height: 1.08;
   }
 
@@ -1458,8 +1399,9 @@
     border: 1px solid #d9e2ec;
     background: #ffffff;
     color: #172b4d;
-    padding: 0.78rem 0.9rem;
+    padding: 0.62rem 0.72rem;
     box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.03);
+    font-size: 0.88rem;
   }
 
   textarea,
@@ -1476,8 +1418,9 @@
   .secondary-button,
   .mini-link {
     border-radius: 999px;
-    padding: 0.7rem 1rem;
+    padding: 0.55rem 0.85rem;
     transition: transform 120ms ease, box-shadow 120ms ease;
+    font-size: 0.84rem;
   }
 
   .compact {
@@ -1544,17 +1487,17 @@
 
   .history-row {
     display: grid;
-    grid-template-columns: 160px minmax(0, 1fr) 140px;
-    gap: 1rem;
+    grid-template-columns: 132px minmax(0, 1fr) 118px;
+    gap: 0.75rem;
     align-items: center;
   }
 
   .history-thumb {
     position: relative;
-    min-height: 112px;
+    min-height: 92px;
     padding: 0;
     overflow: hidden;
-    border-radius: 18px;
+    border-radius: 16px;
     background: #eef3f8;
   }
 
@@ -1583,7 +1526,7 @@
     justify-content: center;
     padding: 0.28rem 0.62rem;
     border-radius: 999px;
-    font-size: 0.74rem;
+    font-size: 0.68rem;
     font-weight: 700;
   }
 
@@ -1607,7 +1550,7 @@
 
   .history-copy {
     display: grid;
-    gap: 0.4rem;
+    gap: 0.3rem;
     min-width: 0;
   }
 
@@ -1616,19 +1559,25 @@
     background: transparent;
     color: #172b4d;
     text-align: left;
-    line-height: 1.45;
+    line-height: 1.35;
+    font-size: 0.92rem;
   }
 
   .compact-stack {
     display: grid;
-    gap: 0.45rem;
+    gap: 0.35rem;
+  }
+
+  .toolbar-title {
+    display: grid;
+    gap: 0.1rem;
   }
 
   .balance-banner {
     display: grid;
     gap: 0.25rem;
-    padding: 0.9rem 1rem;
-    border-radius: 18px;
+    padding: 0.7rem 0.8rem;
+    border-radius: 16px;
     border: 1px solid #dce6f2;
     background: #f8fbff;
   }
@@ -1649,21 +1598,21 @@
   }
 
   .balance-banner span {
-    font-size: 0.84rem;
+    font-size: 0.74rem;
     color: #66758c;
   }
 
   .balance-grid {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0.65rem;
+    grid-template-columns: 1fr;
+    gap: 0.55rem;
   }
 
   .balance-card {
     display: grid;
     gap: 0.2rem;
-    padding: 0.8rem 0.9rem;
-    border-radius: 18px;
+    padding: 0.68rem 0.75rem;
+    border-radius: 14px;
     background: #f8fafc;
     border: 1px solid #e2e8f0;
   }
@@ -1674,7 +1623,7 @@
   }
 
   .balance-card strong {
-    font-size: 1.08rem;
+    font-size: 0.96rem;
     color: #172b4d;
   }
 
@@ -1685,18 +1634,19 @@
 
   .composer-dock {
     position: fixed;
-    left: clamp(1rem, 16vw, 18rem);
-    right: clamp(1rem, 18vw, 19rem);
+    left: clamp(1rem, 13vw, 14.5rem);
+    right: clamp(1rem, 14vw, 15.5rem);
     bottom: 1rem;
     z-index: 30;
   }
 
   .composer-card {
-    padding: 1rem;
-    background: rgba(255, 255, 255, 0.96);
-    backdrop-filter: blur(14px);
-    border: 1px solid #d8e0ea;
-    box-shadow: 0 24px 64px rgba(23, 43, 77, 0.14);
+    padding: 0.8rem;
+    background: rgba(255, 255, 255, 0.72);
+    backdrop-filter: blur(18px) saturate(1.2);
+    -webkit-backdrop-filter: blur(18px) saturate(1.2);
+    border: 1px solid rgba(217, 226, 236, 0.9);
+    box-shadow: 0 18px 42px rgba(23, 43, 77, 0.14);
   }
 
   .composer-top {
@@ -1707,14 +1657,14 @@
   }
 
   .chat-input {
-    min-height: 92px;
+    min-height: 78px;
     resize: none;
-    border-radius: 22px;
-    background: #fbfdff;
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.78);
   }
 
   .composer-send {
-    min-width: 116px;
+    min-width: 98px;
     align-self: stretch;
   }
 
@@ -1728,13 +1678,13 @@
 
   .frame-pair {
     display: flex;
-    gap: 0.75rem;
+    gap: 0.55rem;
   }
 
   .frame-mini {
     display: grid;
-    gap: 0.35rem;
-    width: 112px;
+    gap: 0.25rem;
+    width: 92px;
   }
 
   .mini-head {
@@ -1742,7 +1692,7 @@
     justify-content: space-between;
     align-items: center;
     gap: 0.35rem;
-    font-size: 0.76rem;
+    font-size: 0.68rem;
   }
 
   .mini-link {
@@ -1754,9 +1704,9 @@
     position: relative;
     display: grid;
     place-items: center;
-    min-height: 88px;
-    border-radius: 16px;
-    background: #f4f7fb;
+    min-height: 72px;
+    border-radius: 14px;
+    background: rgba(248, 250, 252, 0.85);
     border: 1px dashed #ccd7e5;
     overflow: hidden;
     color: #66758c;
@@ -1772,34 +1722,32 @@
   .composer-controls {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.65rem;
+    gap: 0.45rem;
     align-items: end;
   }
 
   .compact-field {
     display: grid;
     gap: 0.25rem;
-    min-width: 108px;
+    min-width: 92px;
   }
 
   .compact-field select {
-    padding: 0.55rem 0.7rem;
+    padding: 0.45rem 0.6rem;
     border-radius: 14px;
     background: #f8fafc;
   }
 
-  .mini-check,
-  .mini-lock,
-  .mini-info {
+  .mini-check {
     display: inline-flex;
     align-items: center;
     gap: 0.45rem;
-    padding: 0.55rem 0.75rem;
+    padding: 0.45rem 0.6rem;
     border-radius: 14px;
-    background: #f8fafc;
+    background: rgba(248, 250, 252, 0.82);
     border: 1px solid #dce4ef;
     color: #304560;
-    font-size: 0.84rem;
+    font-size: 0.76rem;
   }
 
   .drawer {
@@ -1918,12 +1866,12 @@
 
   @media (max-width: 1380px) {
     .workspace-shell {
-      grid-template-columns: 260px minmax(0, 1fr) 280px;
+      grid-template-columns: 210px minmax(0, 1fr) 230px;
     }
 
     .composer-dock {
-      left: 15rem;
-      right: 16rem;
+      left: 13rem;
+      right: 14rem;
     }
   }
 
