@@ -24,6 +24,7 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
             poll_interval REAL NOT NULL DEFAULT 3.0,
             billing_access_key TEXT NOT NULL DEFAULT '',
             billing_secret_key TEXT NOT NULL DEFAULT '',
+            billing_security_token TEXT NOT NULL DEFAULT '',
             low_balance_threshold REAL NOT NULL DEFAULT 100.0
         );
 
@@ -86,6 +87,12 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
     add_column_if_missing(
         conn,
         "app_settings",
+        "billing_security_token",
+        "TEXT NOT NULL DEFAULT ''",
+    )?;
+    add_column_if_missing(
+        conn,
+        "app_settings",
         "low_balance_threshold",
         "REAL NOT NULL DEFAULT 100.0",
     )?;
@@ -105,6 +112,7 @@ pub fn load_settings(conn: &Connection) -> Result<AppSettings> {
                 poll_interval,
                 billing_access_key,
                 billing_secret_key,
+                billing_security_token,
                 low_balance_threshold
             FROM app_settings
             WHERE id = 1
@@ -119,7 +127,8 @@ pub fn load_settings(conn: &Connection) -> Result<AppSettings> {
                     poll_interval: row.get(4)?,
                     billing_access_key: row.get(5)?,
                     billing_secret_key: row.get(6)?,
-                    low_balance_threshold: row.get(7)?,
+                    billing_security_token: row.get(7)?,
+                    low_balance_threshold: row.get(8)?,
                 })
             },
         )
@@ -140,9 +149,10 @@ pub fn save_settings(conn: &Connection, settings: &AppSettings) -> Result<AppSet
             poll_interval,
             billing_access_key,
             billing_secret_key,
+            billing_security_token,
             low_balance_threshold
         )
-        VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+        VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
         ON CONFLICT(id) DO UPDATE SET
             api_key = excluded.api_key,
             platform = excluded.platform,
@@ -151,6 +161,7 @@ pub fn save_settings(conn: &Connection, settings: &AppSettings) -> Result<AppSet
             poll_interval = excluded.poll_interval,
             billing_access_key = excluded.billing_access_key,
             billing_secret_key = excluded.billing_secret_key,
+            billing_security_token = excluded.billing_security_token,
             low_balance_threshold = excluded.low_balance_threshold
         "#,
         params![
@@ -161,6 +172,7 @@ pub fn save_settings(conn: &Connection, settings: &AppSettings) -> Result<AppSet
             settings.poll_interval,
             settings.billing_access_key,
             settings.billing_secret_key,
+            settings.billing_security_token,
             settings.low_balance_threshold
         ],
     )?;

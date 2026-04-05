@@ -22,6 +22,7 @@ export type AppSettings = {
   pollInterval: number;
   billingAccessKey: string;
   billingSecretKey: string;
+  billingSecurityToken: string;
   lowBalanceThreshold: number;
 };
 

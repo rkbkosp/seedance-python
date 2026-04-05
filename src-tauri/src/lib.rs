@@ -90,6 +90,7 @@ fn save_settings(
         },
         billing_access_key: settings.billing_access_key.trim().to_string(),
         billing_secret_key: settings.billing_secret_key.trim().to_string(),
+        billing_security_token: settings.billing_security_token.trim().to_string(),
         low_balance_threshold: if settings.low_balance_threshold >= 0.0 {
             settings.low_balance_threshold
         } else {
@@ -515,7 +516,11 @@ async fn query_and_store_balance(app: &AppHandle, state: AppState) -> Result<Bal
         return db::load_balance(&conn);
     }
 
-    let snapshot = match BillingClient::new(&settings.billing_access_key, &settings.billing_secret_key)?
+    let snapshot = match BillingClient::new(
+        &settings.billing_access_key,
+        &settings.billing_secret_key,
+        normalize_optional_string(Some(settings.billing_security_token.clone())),
+    )?
         .query_balance()
         .await
     {

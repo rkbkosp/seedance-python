@@ -10,6 +10,7 @@ pub struct AppSettings {
     pub poll_interval: f64,
     pub billing_access_key: String,
     pub billing_secret_key: String,
+    pub billing_security_token: String,
     pub low_balance_threshold: f64,
 }
 
@@ -23,6 +24,7 @@ impl Default for AppSettings {
             poll_interval: 3.0,
             billing_access_key: String::new(),
             billing_secret_key: String::new(),
+            billing_security_token: String::new(),
             low_balance_threshold: 100.0,
         }
     }

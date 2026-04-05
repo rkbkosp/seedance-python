@@ -1,7 +1,6 @@
 use anyhow::{anyhow, bail, Context, Result};
 use chrono::Utc;
 use hmac::{Hmac, Mac};
-use percent_encoding::{utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
@@ -9,24 +8,27 @@ use crate::models::BalanceSnapshot;
 
 type HmacSha256 = Hmac<Sha256>;
 
+const BILLING_ENDPOINT: &str = "https://open.volcengineapi.com";
+const BILLING_HOST: &str = "open.volcengineapi.com";
 const BILLING_SERVICE: &str = "billing";
+const BILLING_REGION: &str = "cn-beijing";
 const BILLING_VERSION: &str = "2022-01-01";
 const ACTION_QUERY_BALANCE: &str = "QueryBalanceAcct";
-const AWS_ENCODE_SET: &AsciiSet = &NON_ALPHANUMERIC
-    .remove(b'-')
-    .remove(b'_')
-    .remove(b'.')
-    .remove(b'~');
 
 #[derive(Debug, Clone)]
 pub struct BillingClient {
     access_key: String,
     secret_key: String,
+    security_token: Option<String>,
     client: reqwest::Client,
 }
 
 impl BillingClient {
-    pub fn new(access_key: &str, secret_key: &str) -> Result<Self> {
+    pub fn new(
+        access_key: &str,
+        secret_key: &str,
+        security_token: Option<String>,
+    ) -> Result<Self> {
         if access_key.trim().is_empty() || secret_key.trim().is_empty() {
             bail!("Missing Billing AK/SK");
         }
@@ -38,78 +40,63 @@ impl BillingClient {
         Ok(Self {
             access_key: access_key.trim().to_string(),
             secret_key: secret_key.trim().to_string(),
+            security_token,
             client,
         })
     }
 
     pub async fn query_balance(&self) -> Result<BalanceSnapshot> {
-        let attempts = [
-            ("https://billing.volcengineapi.com", "billing.volcengineapi.com", "cn-north-1"),
-            ("https://billing.volcengineapi.com", "billing.volcengineapi.com", "cn-beijing"),
-            ("https://open.volcengineapi.com", "open.volcengineapi.com", "cn-beijing"),
-            ("https://open.volcengineapi.com", "open.volcengineapi.com", "cn-north-1"),
-        ];
-
-        let mut last_error: Option<anyhow::Error> = None;
-        for (endpoint, host, region) in attempts {
-            match self.query_balance_once(endpoint, host, region).await {
-                Ok(snapshot) => return Ok(snapshot),
-                Err(error) => last_error = Some(error),
-            }
-        }
-
-        Err(last_error.unwrap_or_else(|| anyhow!("Failed to query billing balance")))
-    }
-
-    async fn query_balance_once(
-        &self,
-        endpoint: &str,
-        host: &str,
-        region: &str,
-    ) -> Result<BalanceSnapshot> {
         let now = Utc::now();
         let amz_date = now.format("%Y%m%dT%H%M%SZ").to_string();
         let short_date = now.format("%Y%m%d").to_string();
-        let canonical_query = canonical_query_string(&[
-            ("Action", ACTION_QUERY_BALANCE),
-            ("Version", BILLING_VERSION),
-        ]);
-        let payload_hash = sha256_hex("");
-        let signed_headers = "host;x-content-sha256;x-date";
+        let payload = "{}";
+        let payload_hash = sha256_hex(payload);
+        let signed_headers = if self.security_token.is_some() {
+            "content-type;host;x-content-sha256;x-date;x-security-token"
+        } else {
+            "content-type;host;x-content-sha256;x-date"
+        };
         let canonical_headers = format!(
-            "host:{host}\nx-content-sha256:{payload_hash}\nx-date:{amz_date}\n"
+            "content-type:application/json; charset=utf-8\nhost:{BILLING_HOST}\nx-content-sha256:{payload_hash}\nx-date:{amz_date}\n{}",
+            self.security_token
+                .as_ref()
+                .map(|token| format!("x-security-token:{token}\n"))
+                .unwrap_or_default()
         );
-
+        let canonical_query = format!("Action={ACTION_QUERY_BALANCE}&Version={BILLING_VERSION}");
         let canonical_request = format!(
-            "GET\n/\n{canonical_query}\n{canonical_headers}\n{signed_headers}\n{payload_hash}"
+            "POST\n/\n{canonical_query}\n{canonical_headers}\n{signed_headers}\n{payload_hash}"
         );
-        let credential_scope = format!("{short_date}/{region}/{BILLING_SERVICE}/request");
+        let credential_scope = format!("{short_date}/{BILLING_REGION}/{BILLING_SERVICE}/request");
         let string_to_sign = format!(
             "HMAC-SHA256\n{amz_date}\n{credential_scope}\n{}",
             sha256_hex(&canonical_request)
         );
-        let signing_key = signing_key(&self.secret_key, &short_date, region)?;
+        let signing_key = signing_key(&self.secret_key, &short_date)?;
         let signature = hex_hmac(&signing_key, &string_to_sign)?;
         let authorization = format!(
             "HMAC-SHA256 Credential={}/{}, SignedHeaders={}, Signature={}",
             self.access_key, credential_scope, signed_headers, signature
         );
 
-        let url = format!("{endpoint}/?{canonical_query}");
-        let response = self
+        let mut request = self
             .client
-            .get(url)
-            .header("Host", host)
+            .post(format!("{BILLING_ENDPOINT}/?{canonical_query}"))
+            .header("Host", BILLING_HOST)
+            .header("Content-Type", "application/json; charset=utf-8")
             .header("X-Date", amz_date)
             .header("X-Content-Sha256", payload_hash)
             .header("Authorization", authorization)
-            .send()
-            .await?;
+            .body(payload.to_string());
+        if let Some(token) = &self.security_token {
+            request = request.header("X-Security-Token", token);
+        }
+        let response = request.send().await?;
 
         let status = response.status();
         let text = response.text().await?;
         if !status.is_success() {
-            bail!("Billing HTTP {status} ({host}, {region}): {text}");
+            bail!("Billing HTTP {status}: {text}");
         }
 
         let value: Value =
@@ -119,7 +106,7 @@ impl BillingClient {
             .get("ResponseMetadata")
             .and_then(|meta| meta.get("Error"))
         {
-            bail!("Billing API error ({host}, {region}): {}", error);
+            bail!("Billing API error: {}", error);
         }
 
         let result = value
@@ -139,31 +126,14 @@ impl BillingClient {
     }
 }
 
-fn canonical_query_string(items: &[(&str, &str)]) -> String {
-    let mut pairs = items
-        .iter()
-        .map(|(key, value)| (encode_component(key), encode_component(value)))
-        .collect::<Vec<_>>();
-    pairs.sort_unstable();
-    pairs
-        .into_iter()
-        .map(|(key, value)| format!("{key}={value}"))
-        .collect::<Vec<_>>()
-        .join("&")
-}
-
-fn encode_component(value: &str) -> String {
-    utf8_percent_encode(value, AWS_ENCODE_SET).to_string()
-}
-
 fn sha256_hex(value: &str) -> String {
     let digest = Sha256::digest(value.as_bytes());
     hex_string(&digest)
 }
 
-fn signing_key(secret_key: &str, short_date: &str, region: &str) -> Result<Vec<u8>> {
+fn signing_key(secret_key: &str, short_date: &str) -> Result<Vec<u8>> {
     let k_date = hmac_bytes(format!("VOLC{secret_key}").as_bytes(), short_date)?;
-    let k_region = hmac_bytes(&k_date, region)?;
+    let k_region = hmac_bytes(&k_date, BILLING_REGION)?;
     let k_service = hmac_bytes(&k_region, BILLING_SERVICE)?;
     hmac_bytes(&k_service, "request")
 }

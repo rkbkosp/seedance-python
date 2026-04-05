@@ -26,6 +26,7 @@
     pollInterval: 3,
     billingAccessKey: "",
     billingSecretKey: "",
+    billingSecurityToken: "",
     lowBalanceThreshold: 100,
   };
 
@@ -1138,22 +1139,36 @@
           </label>
 
           <label class="field">
+            <span>Billing Security Token</span>
+            <input
+              bind:value={settings.billingSecurityToken}
+              placeholder="可选：使用 API Explorer / 临时凭证时填写"
+              type="password"
+            />
+          </label>
+
+          <label class="field">
             <span>低余额告警阈值</span>
             <input bind:value={settings.lowBalanceThreshold} min="0" step="1" type="number" />
           </label>
 
-          <div class={`balance-banner ${hasArrears() ? "danger" : isLowBalance() ? "warn" : "ok"}`}>
-            <strong>{balanceStatusText()}</strong>
-            <span>
-              {#if balance.updatedAt}
-                更新时间：{displayDate(balance.updatedAt)}
-              {:else}
-                等待首次成功同步余额
-              {/if}
-            </span>
-          </div>
+        <div class={`balance-banner ${hasArrears() ? "danger" : isLowBalance() ? "warn" : "ok"}`}>
+          <strong>{balanceStatusText()}</strong>
+          <span>
+            {#if balance.updatedAt}
+              更新时间：{displayDate(balance.updatedAt)}
+            {:else}
+              等待首次成功同步余额
+            {/if}
+          </span>
+        </div>
 
-          <div class="balance-grid">
+        <div class="settings-note">
+          如果你是从 API Explorer 复制的临时凭证，除了 AccessKey / SecretKey 之外，还需要把
+          `X-Security-Token` 一起填到上面的 Security Token 字段里。
+        </div>
+
+        <div class="balance-grid">
             <div class="balance-card featured">
               <span class="meta-label">可用余额</span>
               <strong>{formatAmount(balance.availableBalance)}</strong>

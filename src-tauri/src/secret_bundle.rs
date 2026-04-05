@@ -24,6 +24,7 @@ struct SecretBundleV1 {
     api_key: String,
     billing_access_key: String,
     billing_secret_key: String,
+    billing_security_token: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -47,6 +48,7 @@ pub fn export_secret_bundle(settings: &AppSettings, password: &str) -> Result<St
         api_key: settings.api_key.clone(),
         billing_access_key: settings.billing_access_key.clone(),
         billing_secret_key: settings.billing_secret_key.clone(),
+        billing_security_token: settings.billing_security_token.clone(),
     };
     let plaintext = serde_json::to_vec(&bundle)?;
 
@@ -138,6 +140,7 @@ pub fn import_secret_bundle(current: &AppSettings, password: &str, encoded: &str
     next.api_key = bundle.api_key;
     next.billing_access_key = bundle.billing_access_key;
     next.billing_secret_key = bundle.billing_secret_key;
+    next.billing_security_token = bundle.billing_security_token;
     Ok(next)
 }
 
