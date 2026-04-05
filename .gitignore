@@ -1,0 +1,15 @@
+.DS_Store
+out.mp4
+
+node_modules/
+dist/
+target/
+src-tauri/target/
+
+artifacts/
+data/
+
+*.db
+*.db-shm
+*.db-wal
+
