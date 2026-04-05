@@ -131,7 +131,7 @@
       history = payload.history;
       dataDir = payload.dataDir;
       artifactsDir = payload.artifactsDir;
-      setFeedback("Studio ready");
+      setFeedback("工作台已就绪");
     } catch (error) {
       setError(String(error));
     } finally {
@@ -170,7 +170,7 @@
       if (settings.billingAccessKey && settings.billingSecretKey) {
         await refreshBalanceAction(false);
       }
-      setFeedback("Settings saved");
+      setFeedback("设置已保存");
     } catch (error) {
       setError(String(error));
     } finally {
@@ -202,7 +202,7 @@
       selectedGeneration = created;
       drawerOpen = true;
       await Promise.all([refreshActiveTasks(), refreshHistory(1)]);
-      setFeedback(`Queued generation #${created.id}`);
+      setFeedback(`任务 #${created.id} 已加入队列`);
     } catch (error) {
       setError(String(error));
     } finally {
@@ -272,7 +272,7 @@
   function usePrompt(prompt: string): void {
     form.prompt = prompt;
     saveDraftPrompt(prompt);
-    setFeedback("Prompt loaded into composer");
+    setFeedback("提示词已加载到创作区");
   }
 
   function storedAsset(path: string | null | undefined): FileInputPayload | null {
@@ -294,7 +294,7 @@
       fileName: path.split(/[\\/]/).pop() ?? "reference",
       previewUrl: assetSrc(path),
     })));
-    setFeedback("Visual references loaded into composer");
+    setFeedback("参考素材已加载到创作区");
   }
 
   function applyGenerationParams(detail: GenerationDetail): void {
@@ -399,7 +399,7 @@
     const payload = parseCustomDrop(event);
     if (payload?.kind === "prompt" && payload.prompt) {
       updatePromptDraft(payload.prompt);
-      setFeedback("Prompt dropped into composer");
+      setFeedback("提示词已拖入创作区");
     }
   }
 
@@ -581,19 +581,19 @@
     if (slot === "first") {
       revokePreview(firstFrame);
       firstFrame = asset;
-      setFeedback("First frame loaded from history");
+      setFeedback("首帧已从历史记录载入");
       return;
     }
 
     if (slot === "last") {
       revokePreview(inputLastFrame);
       inputLastFrame = asset;
-      setFeedback("Last frame loaded from history");
+      setFeedback("尾帧已从历史记录载入");
       return;
     }
 
     referenceImages = [...referenceImages, asset];
-    setFeedback("Reference image appended from history");
+    setFeedback("参考图已从历史记录追加");
   }
 
   function amountValue(value?: string | null): number | null {
@@ -622,31 +622,31 @@
   }
 
   function balanceStatusText(): string {
-    if (!isBillingConfigured()) return "Configure Billing AK/SK to enable balance tracking.";
+    if (!isBillingConfigured()) return "请先配置 Billing AK/SK，才能启用余额跟踪。";
     if (hasArrears()) {
       return balance.errorMessage
-        ? `Account has arrears. Last refresh failed: ${balance.errorMessage}`
-        : "Account has arrears. Top up before more tasks consume quota.";
+        ? `账户存在欠费。最近一次刷新失败：${balance.errorMessage}`
+        : "账户存在欠费，请先充值再继续消耗额度。";
     }
     if (isLowBalance()) {
       return balance.errorMessage
-        ? `Available balance is below the warning threshold (${formatAmount(String(settings.lowBalanceThreshold))}). Last refresh failed: ${balance.errorMessage}`
-        : `Available balance is below the warning threshold (${formatAmount(String(settings.lowBalanceThreshold))}).`;
+        ? `可用余额已低于告警阈值（${formatAmount(String(settings.lowBalanceThreshold))}）。最近一次刷新失败：${balance.errorMessage}`
+        : `可用余额已低于告警阈值（${formatAmount(String(settings.lowBalanceThreshold))}）。`;
     }
     if (balance.errorMessage) return balance.errorMessage;
-    return "Balance is healthy.";
+    return "余额状态正常。";
   }
 
   async function refreshBalanceAction(showFeedback = true): Promise<void> {
     if (!isBillingConfigured()) {
-      if (showFeedback) setError("Billing AK/SK are not configured yet.");
+      if (showFeedback) setError("尚未配置 Billing AK/SK。");
       return;
     }
 
     isRefreshingBalance = true;
     try {
       balance = await invoke<BalanceSnapshot>("refresh_balance");
-      if (showFeedback) setFeedback("Billing balance refreshed");
+      if (showFeedback) setFeedback("余额已刷新");
     } catch (error) {
       setError(String(error));
     } finally {
@@ -656,7 +656,7 @@
 
   async function exportSecretBundleAction(): Promise<void> {
     if (!secretBundlePassword) {
-      setError("Enter a password before exporting the secret bundle.");
+      setError("请先输入密码，再导出密钥包。");
       return;
     }
 
@@ -665,7 +665,7 @@
       secretBundleExport = await invoke<string>("export_secret_bundle", {
         password: secretBundlePassword,
       });
-      setFeedback("Encrypted secret bundle generated");
+      setFeedback("已生成加密密钥包");
     } catch (error) {
       setError(String(error));
     } finally {
@@ -675,11 +675,11 @@
 
   async function importSecretBundleAction(): Promise<void> {
     if (!secretBundlePassword) {
-      setError("Enter the secret bundle password before importing.");
+      setError("请先输入密钥包密码，再执行导入。");
       return;
     }
     if (!secretBundleImport.trim()) {
-      setError("Paste an exported bundle before importing.");
+      setError("请先粘贴导出的密钥包内容。");
       return;
     }
 
@@ -697,7 +697,7 @@
       if (settings.billingAccessKey && settings.billingSecretKey) {
         await refreshBalanceAction(false);
       }
-      setFeedback("Secret bundle imported into local key storage");
+      setFeedback("密钥包已导入到本地密钥存储");
     } catch (error) {
       setError(String(error));
     } finally {
@@ -707,13 +707,13 @@
 
   async function copySecretBundleAction(): Promise<void> {
     if (!secretBundleExport) {
-      setError("Generate a secret bundle before copying.");
+      setError("请先生成密钥包，再复制。");
       return;
     }
 
     try {
       await navigator.clipboard.writeText(secretBundleExport);
-      setFeedback("Encrypted secret bundle copied to clipboard");
+      setFeedback("已复制加密密钥包到剪贴板");
     } catch (error) {
       setError(String(error));
     }
@@ -721,27 +721,26 @@
 </script>
 
 <svelte:head>
-  <title>Seedance Studio</title>
+  <title>Seedance Studio 视频工作台</title>
 </svelte:head>
 
 <div class="studio-shell">
   <header class="hero">
     <div>
       <p class="eyebrow">Seedance Studio</p>
-      <h1>Prompt editing, history replay, and local media control in one desktop workspace.</h1>
+      <h1>在同一个桌面工作台里完成提示词编辑、历史回看和本地素材管理。</h1>
       <p class="hero-copy">
-        The app keeps every generation on disk, previews history with light thumbnails, and lets you pull old prompts
-        and reference assets back into the composer without leaving the window.
+        应用会把每次生成结果落盘保存，用轻量缩略图预览历史记录，并且允许你不离开当前窗口就把旧提示词和参考素材重新拖回创作区复用。
       </p>
     </div>
     <div class="meta-panel">
       <div>
-        <span class="meta-label">Data</span>
-        <span class="meta-value">{dataDir || "Bootstrapping..."}</span>
+        <span class="meta-label">数据目录</span>
+        <span class="meta-value">{dataDir || "正在初始化..."}</span>
       </div>
       <div>
-        <span class="meta-label">Artifacts</span>
-        <span class="meta-value">{artifactsDir || "Preparing storage..."}</span>
+        <span class="meta-label">素材目录</span>
+        <span class="meta-value">{artifactsDir || "正在准备存储..."}</span>
       </div>
       <div class:success={Boolean(feedback)} class:error={Boolean(errorMessage)}>
         {#if errorMessage}
@@ -757,19 +756,19 @@
     <div class="panel composer-panel">
       <div class="panel-header">
         <div>
-          <p class="panel-kicker">Composer</p>
-          <h2>Build a new generation</h2>
+          <p class="panel-kicker">创作区</p>
+          <h2>创建新的视频任务</h2>
         </div>
         <button class="primary-button" disabled={isSubmitting || isBootstrapping} on:click={submitGeneration}>
-          {#if isSubmitting}Queueing...{:else}Generate{/if}
+          {#if isSubmitting}正在入队...{:else}开始生成{/if}
         </button>
       </div>
 
       <label class="field">
-        <span>Prompt</span>
+        <span>提示词</span>
         <textarea
           class="prompt-field"
-          placeholder="Describe movement, camera motion, atmosphere, and timing."
+          placeholder="描述动作、镜头运动、氛围和节奏。"
           value={form.prompt}
           on:input={(event) => updatePromptDraft((event.currentTarget as HTMLTextAreaElement).value)}
           on:dragover={allowDrop}
@@ -781,23 +780,23 @@
         <div
           class="field drop-field"
           role="group"
-          aria-label="First frame drop zone"
+          aria-label="首帧投放区"
           on:dragover={allowDrop}
           on:drop={(event) => handleAssetDrop(event, "first")}
         >
           <div class="field-head">
-            <span>First frame</span>
+            <span>首帧</span>
             {#if firstFrame}
               <button class="link-button" on:click={() => { revokePreview(firstFrame); firstFrame = null; }}>
-                Clear
+                清空
               </button>
             {/if}
           </div>
           <label class="asset-box">
             {#if firstFrame?.previewUrl}
-              <img src={firstFrame.previewUrl} alt="First frame preview" />
+              <img src={firstFrame.previewUrl} alt="首帧预览" />
             {:else}
-              <span>Drop a reusable image here or upload a new one.</span>
+              <span>把可复用图片拖到这里，或者上传一张新图片。</span>
             {/if}
             <input accept="image/*" type="file" on:change={(event) => handleSingleFileChange(event, "first")} />
           </label>
@@ -806,23 +805,23 @@
         <div
           class="field drop-field"
           role="group"
-          aria-label="Input last frame drop zone"
+          aria-label="输入尾帧投放区"
           on:dragover={allowDrop}
           on:drop={(event) => handleAssetDrop(event, "last")}
         >
           <div class="field-head">
-            <span>Input last frame</span>
+            <span>输入尾帧</span>
             {#if inputLastFrame}
               <button class="link-button" on:click={() => { revokePreview(inputLastFrame); inputLastFrame = null; }}>
-                Clear
+                清空
               </button>
             {/if}
           </div>
           <label class="asset-box">
             {#if inputLastFrame?.previewUrl}
-              <img src={inputLastFrame.previewUrl} alt="Input last frame preview" />
+              <img src={inputLastFrame.previewUrl} alt="输入尾帧预览" />
             {:else}
-              <span>Set the final composition target before generation starts.</span>
+              <span>在生成前先设定最终构图目标。</span>
             {/if}
             <input accept="image/*" type="file" on:change={(event) => handleSingleFileChange(event, "last")} />
           </label>
@@ -831,14 +830,14 @@
         <div
           class="field drop-field wide"
           role="group"
-          aria-label="Reference image drop zone"
+          aria-label="参考图投放区"
           on:dragover={allowDrop}
           on:drop={(event) => handleAssetDrop(event, "reference")}
         >
           <div class="field-head">
-            <span>Reference images</span>
+            <span>参考图</span>
             <label class="upload-chip">
-              Add
+              添加
               <input accept="image/*" multiple type="file" on:change={handleReferenceFilesChange} />
             </label>
           </div>
@@ -849,11 +848,11 @@
                   {#if asset.previewUrl}
                     <img src={asset.previewUrl} alt={`Reference ${index + 1}`} />
                   {/if}
-                  <button class="remove-button" on:click={() => removeReference(index)}>Remove</button>
+                  <button class="remove-button" on:click={() => removeReference(index)}>移除</button>
                 </div>
               {/each}
             {:else}
-              <p class="reference-placeholder">History assets dropped here will append without replacing the existing set.</p>
+              <p class="reference-placeholder">把历史素材拖到这里会追加到当前列表，不会覆盖已有参考图。</p>
             {/if}
           </div>
         </div>
@@ -861,7 +860,7 @@
 
       <div class="controls-grid">
         <label class="field">
-          <span>Ratio</span>
+          <span>画幅比例</span>
           <select bind:value={form.ratio}>
             {#each ratioOptions as option}
               <option value={option}>{option}</option>
@@ -870,7 +869,7 @@
         </label>
 
         <label class="field">
-          <span>Resolution</span>
+          <span>分辨率</span>
           <select bind:value={form.resolution}>
             {#each resolutionOptions as option}
               <option value={option}>{option}</option>
@@ -879,94 +878,94 @@
         </label>
 
         <label class="field">
-          <span>Duration (sec)</span>
+          <span>时长（秒）</span>
           <input bind:value={form.duration} min="1" step="1" type="number" />
         </label>
 
         <label class="field">
-          <span>Frames</span>
-          <input bind:value={form.frames} min="1" step="1" placeholder="Optional" type="number" />
+          <span>帧数</span>
+          <input bind:value={form.frames} min="1" step="1" placeholder="可选" type="number" />
         </label>
 
         <label class="field">
-          <span>Seed</span>
-          <input bind:value={form.seed} min="0" step="1" placeholder="Optional" type="number" />
+          <span>随机种子</span>
+          <input bind:value={form.seed} min="0" step="1" placeholder="可选" type="number" />
         </label>
       </div>
 
       <div class="toggle-row">
-        <label><input bind:checked={form.returnLastFrame} type="checkbox" /> Return last frame</label>
-        <label><input bind:checked={form.cameraFixed} type="checkbox" /> Camera fixed</label>
-        <label><input bind:checked={form.watermark} type="checkbox" /> Watermark</label>
-        <label><input bind:checked={form.generateAudio} type="checkbox" /> Generate audio</label>
-        <label><input bind:checked={form.draft} type="checkbox" /> Draft mode</label>
+        <label><input bind:checked={form.returnLastFrame} type="checkbox" /> 返回尾帧</label>
+        <label><input bind:checked={form.cameraFixed} type="checkbox" /> 固定镜头</label>
+        <label><input bind:checked={form.watermark} type="checkbox" /> 添加水印</label>
+        <label><input bind:checked={form.generateAudio} type="checkbox" /> 生成音频</label>
+        <label><input bind:checked={form.draft} type="checkbox" /> 草稿模式</label>
       </div>
     </div>
 
     <aside class="panel settings-panel">
       <div class="panel-header">
         <div>
-          <p class="panel-kicker">Key Management</p>
-          <h2>Credentials and billing</h2>
+          <p class="panel-kicker">密钥管理</p>
+          <h2>凭证与计费</h2>
         </div>
         <button class="secondary-button" disabled={isSavingSettings} on:click={saveSettingsAction}>
-          {#if isSavingSettings}Saving...{:else}Save{/if}
+          {#if isSavingSettings}正在保存...{:else}保存{/if}
         </button>
       </div>
 
       <label class="field">
-        <span>Seedance API key</span>
-        <input bind:value={settings.apiKey} placeholder="ARK API key" type="password" />
+        <span>Seedance API 密钥</span>
+        <input bind:value={settings.apiKey} placeholder="输入 ARK API 密钥" type="password" />
       </label>
 
       <div class="controls-grid two-column">
         <label class="field">
-          <span>Platform</span>
+          <span>平台</span>
           <select bind:value={settings.platform}>
-            <option value="volc">Volc</option>
+            <option value="volc">火山引擎</option>
             <option value="byteplus">BytePlus</option>
           </select>
         </label>
 
         <label class="field">
-          <span>Poll interval</span>
+          <span>轮询间隔</span>
           <input bind:value={settings.pollInterval} min="1" step="0.5" type="number" />
         </label>
       </div>
 
       <label class="field">
-        <span>Model override</span>
-        <input bind:value={settings.model} placeholder="Optional" type="text" />
+        <span>模型覆盖</span>
+        <input bind:value={settings.model} placeholder="可选" type="text" />
       </label>
 
       <label class="field">
-        <span>Base URL override</span>
-        <input bind:value={settings.baseUrl} placeholder="Optional" type="text" />
+        <span>Base URL 覆盖</span>
+        <input bind:value={settings.baseUrl} placeholder="可选" type="text" />
       </label>
 
       <div class="subpanel">
         <div class="subpanel-head">
           <div>
-            <p class="panel-kicker minor">Billing</p>
-            <h3>Balance API credentials</h3>
+            <p class="panel-kicker minor">计费</p>
+            <h3>余额查询凭证</h3>
           </div>
           <button class="secondary-button" disabled={isRefreshingBalance} on:click={() => refreshBalanceAction()}>
-            {#if isRefreshingBalance}Refreshing...{:else}Refresh balance{/if}
+            {#if isRefreshingBalance}正在刷新...{:else}刷新余额{/if}
           </button>
         </div>
 
         <label class="field">
           <span>Billing AccessKey</span>
-          <input bind:value={settings.billingAccessKey} placeholder="Volcengine billing AK" type="password" />
+          <input bind:value={settings.billingAccessKey} placeholder="输入火山计费 AccessKey" type="password" />
         </label>
 
         <label class="field">
           <span>Billing SecretKey</span>
-          <input bind:value={settings.billingSecretKey} placeholder="Volcengine billing SK" type="password" />
+          <input bind:value={settings.billingSecretKey} placeholder="输入火山计费 SecretKey" type="password" />
         </label>
 
         <label class="field">
-          <span>Low balance warning threshold</span>
+          <span>低余额告警阈值</span>
           <input bind:value={settings.lowBalanceThreshold} min="0" step="1" type="number" />
         </label>
 
@@ -974,93 +973,91 @@
           <strong>{balanceStatusText()}</strong>
           <span>
             {#if balance.updatedAt}
-              Updated {displayDate(balance.updatedAt)}
+              更新时间：{displayDate(balance.updatedAt)}
             {:else}
-              Waiting for first successful balance sync
+              等待首次成功同步余额
             {/if}
           </span>
         </div>
 
         <div class="balance-grid">
           <div class="balance-card featured">
-            <span class="meta-label">Available</span>
+            <span class="meta-label">可用余额</span>
             <strong>{formatAmount(balance.availableBalance)}</strong>
           </div>
           <div class="balance-card">
-            <span class="meta-label">Cash</span>
+            <span class="meta-label">现金余额</span>
             <strong>{formatAmount(balance.cashBalance)}</strong>
           </div>
           <div class="balance-card">
-            <span class="meta-label">Arrears</span>
+            <span class="meta-label">欠费金额</span>
             <strong>{formatAmount(balance.arrearsBalance)}</strong>
           </div>
           <div class="balance-card">
-            <span class="meta-label">Credit Limit</span>
+            <span class="meta-label">信用额度</span>
             <strong>{formatAmount(balance.creditLimit)}</strong>
           </div>
           <div class="balance-card">
-            <span class="meta-label">Frozen</span>
+            <span class="meta-label">冻结金额</span>
             <strong>{formatAmount(balance.freezeAmount)}</strong>
           </div>
           <div class="balance-card">
-            <span class="meta-label">Account ID</span>
+            <span class="meta-label">账户 ID</span>
             <strong>{balance.accountId ?? "--"}</strong>
           </div>
         </div>
       </div>
 
       <div class="settings-note">
-        All keys are saved locally inside the app database on this machine. Billing balance is refreshed manually,
-        on startup, and again five seconds after each task reaches a terminal state.
+        所有密钥只保存在当前机器的应用本地数据库中。余额会在手动刷新、应用启动时，以及每个任务进入终态五秒后自动刷新。
       </div>
 
       <div class="subpanel">
         <div class="subpanel-head">
           <div>
-            <p class="panel-kicker minor">Secret Bundle</p>
-            <h3>Export and import encrypted keys</h3>
+            <p class="panel-kicker minor">密钥包</p>
+            <h3>导出与导入加密密钥</h3>
           </div>
         </div>
 
         <label class="field">
-          <span>Bundle password</span>
-          <input bind:value={secretBundlePassword} placeholder="At least 8 characters" type="password" />
+          <span>密钥包密码</span>
+          <input bind:value={secretBundlePassword} placeholder="至少 8 个字符" type="password" />
         </label>
 
         <div class="secret-actions">
           <button class="secondary-button" disabled={isExportingSecretBundle} on:click={exportSecretBundleAction}>
-            {#if isExportingSecretBundle}Exporting...{:else}Export encrypted bundle{/if}
+            {#if isExportingSecretBundle}正在导出...{:else}导出加密密钥包{/if}
           </button>
           <button class="secondary-button" disabled={!secretBundleExport} on:click={copySecretBundleAction}>
-            Copy export
+            复制导出结果
           </button>
         </div>
 
         <label class="field">
-          <span>Export output</span>
+          <span>导出结果</span>
           <textarea
             class="secret-box"
             bind:value={secretBundleExport}
-            placeholder="Encrypted base64 bundle will appear here."
+            placeholder="这里会显示加密后的 base64 密钥包。"
           ></textarea>
         </label>
 
         <label class="field">
-          <span>Import input</span>
+          <span>导入内容</span>
           <textarea
             class="secret-box"
             bind:value={secretBundleImport}
-            placeholder="Paste a previously exported encrypted base64 bundle here."
+            placeholder="把之前导出的加密 base64 密钥包粘贴到这里。"
           ></textarea>
         </label>
 
         <button class="secondary-button" disabled={isImportingSecretBundle} on:click={importSecretBundleAction}>
-          {#if isImportingSecretBundle}Importing...{:else}Import into local key storage{/if}
+          {#if isImportingSecretBundle}正在导入...{:else}导入到本地密钥存储{/if}
         </button>
 
         <div class="settings-note">
-          The exported string is encrypted first and then base64-encoded for portability. Base64 itself is not the
-          protection layer.
+          导出的字符串会先加密，再编码为 base64 方便传输。真正提供保护的是加密本身，不是 base64。
         </div>
       </div>
     </aside>
@@ -1069,8 +1066,8 @@
   <section class="panel active-panel">
     <div class="panel-header compact">
       <div>
-        <p class="panel-kicker">Live queue</p>
-        <h2>In progress</h2>
+        <p class="panel-kicker">实时队列</p>
+        <h2>进行中的任务</h2>
       </div>
       <span class="count-pill">{activeTasks.length}</span>
     </div>
@@ -1085,40 +1082,40 @@
             </div>
             <div class="active-copy">
               <strong>{item.promptSummary}</strong>
-              <span>{item.progressText ?? "Waiting for remote progress..."}</span>
+              <span>{item.progressText ?? "等待远端进度返回..."}</span>
             </div>
             <time>{displayDate(item.updatedAt)}</time>
           </button>
         {/each}
       </div>
     {:else}
-      <div class="empty-state small">No active generations right now.</div>
+      <div class="empty-state small">当前没有进行中的任务。</div>
     {/if}
   </section>
 
   <section class="panel history-panel">
     <div class="panel-header">
       <div>
-        <p class="panel-kicker">Archive</p>
-        <h2>Generation history</h2>
+        <p class="panel-kicker">历史记录</p>
+        <h2>生成记录</h2>
       </div>
       <div class="history-toolbar">
         <select bind:value={statusFilter} on:change={(event) => changeFilter((event.currentTarget as HTMLSelectElement).value)}>
-          <option value="">All statuses</option>
-          <option value="queued">Queued</option>
-          <option value="running">Running</option>
-          <option value="succeeded">Succeeded</option>
-          <option value="failed">Failed</option>
-          <option value="cancelled">Cancelled</option>
-          <option value="expired">Expired</option>
+          <option value="">全部状态</option>
+          <option value="queued">已排队</option>
+          <option value="running">生成中</option>
+          <option value="succeeded">已成功</option>
+          <option value="failed">已失败</option>
+          <option value="cancelled">已取消</option>
+          <option value="expired">已过期</option>
         </select>
         <div class="pagination">
           <button class="secondary-button" disabled={history.page <= 1} on:click={() => changePage(history.page - 1)}>
-            Prev
+            上一页
           </button>
-          <span>Page {history.page} / {totalPages()}</span>
+          <span>第 {history.page} / {totalPages()} 页</span>
           <button class="secondary-button" disabled={history.page >= totalPages()} on:click={() => changePage(history.page + 1)}>
-            Next
+            下一页
           </button>
         </div>
       </div>
@@ -1144,7 +1141,7 @@
               {:else if item.thumbnailPath}
                 <img alt={item.promptSummary} src={assetSrc(item.thumbnailPath) ?? undefined} />
               {:else}
-                <div class="media-fallback">No thumbnail yet</div>
+                <div class="media-fallback">暂无缩略图</div>
               {/if}
             </button>
 
@@ -1161,21 +1158,21 @@
               >
                 {item.promptSummary}
               </button>
-              <p class="history-progress">{item.progressText ?? item.errorMessage ?? "Ready for reuse"}</p>
+              <p class="history-progress">{item.progressText ?? item.errorMessage ?? "可直接复用"}</p>
             </div>
 
             <div class="history-actions">
-              <button class="primary-button subtle" on:click={() => reuseGenerationById(item.id)}>Reuse all</button>
-              <button class="secondary-button" on:click={() => usePrompt(item.prompt)}>Use prompt</button>
-              <button class="secondary-button" on:click={() => openDetail(item.id)}>Details</button>
+              <button class="primary-button subtle" on:click={() => reuseGenerationById(item.id)}>整条复用</button>
+              <button class="secondary-button" on:click={() => usePrompt(item.prompt)}>复用提示词</button>
+              <button class="secondary-button" on:click={() => openDetail(item.id)}>查看详情</button>
               {#if item.videoPath}
-                <button class="secondary-button" on:click={() => openSummaryVideo(item)}>Show file</button>
+                <button class="secondary-button" on:click={() => openSummaryVideo(item)}>显示文件</button>
                 <button
                   class="secondary-button"
                   draggable="true"
                   on:dragstart={(event) => startSummaryVideoExportDrag(event, item)}
                 >
-                  Drag file out
+                  拖出文件
                 </button>
               {/if}
             </div>
@@ -1183,7 +1180,7 @@
         {/each}
       </div>
     {:else}
-      <div class="empty-state">No history for this filter yet.</div>
+      <div class="empty-state">当前筛选条件下还没有历史记录。</div>
     {/if}
   </section>
 
@@ -1192,35 +1189,31 @@
       <button
         type="button"
         class="drawer-backdrop"
-        aria-label="Close detail panel"
+        aria-label="关闭详情面板"
         on:click={() => (drawerOpen = false)}
       ></button>
       <div class="drawer-panel">
         <div class="panel-header">
           <div>
-            <p class="panel-kicker">Generation #{selectedGeneration.id}</p>
+            <p class="panel-kicker">任务 #{selectedGeneration.id}</p>
             <h2>{statusLabel(selectedGeneration.status)}</h2>
           </div>
-          <button class="secondary-button" on:click={() => (drawerOpen = false)}>Close</button>
+          <button class="secondary-button" on:click={() => (drawerOpen = false)}>关闭</button>
         </div>
 
         <div class="drawer-section">
           <div class="drawer-tools">
-            <button class="primary-button subtle" on:click={reuseSelectedGeneration}>
-              Reuse all
-            </button>
-            <button class="primary-button" on:click={loadSelectedPrompt}>Load prompt</button>
-            <button class="secondary-button" on:click={loadSelectedAssets}>Load assets</button>
+            <button class="primary-button subtle" on:click={reuseSelectedGeneration}>整条复用</button>
+            <button class="primary-button" on:click={loadSelectedPrompt}>加载提示词</button>
+            <button class="secondary-button" on:click={loadSelectedAssets}>加载素材</button>
             {#if selectedGeneration.videoPath}
-              <button class="secondary-button" on:click={openSelectedVideo}>
-                Show video file
-              </button>
+              <button class="secondary-button" on:click={openSelectedVideo}>显示视频文件</button>
               <button
                 class="secondary-button"
                 draggable="true"
                 on:dragstart={startSelectedVideoExportDrag}
               >
-                Drag video file out
+                拖出视频文件
               </button>
             {/if}
           </div>
@@ -1229,13 +1222,13 @@
             class="prompt-card"
             role="button"
             tabindex="0"
-            aria-label="Load or drag prompt back into composer"
+            aria-label="加载提示词或拖回创作区"
             draggable="true"
             on:click={loadSelectedPrompt}
             on:keydown={(event) => (event.key === "Enter" || event.key === " ") && loadSelectedPrompt()}
             on:dragstart={startSelectedPromptDrag}
           >
-            <span class="prompt-label">Click to load or drag this prompt back into the composer.</span>
+            <span class="prompt-label">点击即可加载，也可以把这段提示词拖回创作区。</span>
             <p>{selectedGeneration.prompt}</p>
           </div>
         </div>
@@ -1243,17 +1236,17 @@
         <div class="drawer-section">
           <div class="drawer-grid">
             <div class="media-stack large">
-              <span>Rendered video</span>
+              <span>生成视频</span>
               {#if selectedGeneration.videoPath}
                 <!-- svelte-ignore a11y_media_has_caption -->
                 <video controls playsinline preload="metadata" src={assetSrc(selectedGeneration.videoPath) ?? undefined}></video>
               {:else}
-                <div class="media-fallback">Video not downloaded yet</div>
+                <div class="media-fallback">视频尚未下载</div>
               {/if}
             </div>
 
             <div class="media-stack">
-              <span>First frame</span>
+              <span>首帧</span>
               {#if selectedGeneration.firstFramePath}
                 <button
                   class="asset-button"
@@ -1261,15 +1254,15 @@
                   on:click={() => loadSelectedAssetToSlot("first", selectedGeneration?.firstFramePath)}
                   on:dragstart={(event) => startSelectedAssetDrag(event, selectedGeneration?.firstFramePath, "first")}
                 >
-                  <img alt="First frame" src={assetSrc(selectedGeneration.firstFramePath) ?? undefined} />
+                  <img alt="首帧" src={assetSrc(selectedGeneration.firstFramePath) ?? undefined} />
                 </button>
               {:else}
-                <div class="media-fallback">Not set</div>
+                <div class="media-fallback">未设置</div>
               {/if}
             </div>
 
             <div class="media-stack">
-              <span>Input last frame</span>
+              <span>输入尾帧</span>
               {#if selectedGeneration.inputLastFramePath}
                 <button
                   class="asset-button"
@@ -1278,15 +1271,15 @@
                   on:dragstart={(event) =>
                     startSelectedAssetDrag(event, selectedGeneration?.inputLastFramePath, "last")}
                 >
-                  <img alt="Input last frame" src={assetSrc(selectedGeneration.inputLastFramePath) ?? undefined} />
+                  <img alt="输入尾帧" src={assetSrc(selectedGeneration.inputLastFramePath) ?? undefined} />
                 </button>
               {:else}
-                <div class="media-fallback">Not set</div>
+                <div class="media-fallback">未设置</div>
               {/if}
             </div>
 
             <div class="media-stack">
-              <span>Returned last frame</span>
+              <span>返回尾帧</span>
               {#if selectedGeneration.returnedLastFramePath}
                 <button
                   class="asset-button"
@@ -1296,12 +1289,12 @@
                     startSelectedAssetDrag(event, selectedGeneration?.returnedLastFramePath, "last")}
                 >
                   <img
-                    alt="Returned last frame"
+                    alt="返回尾帧"
                     src={assetSrc(selectedGeneration.returnedLastFramePath) ?? undefined}
                   />
                 </button>
               {:else}
-                <div class="media-fallback">Not returned</div>
+                <div class="media-fallback">未返回</div>
               {/if}
             </div>
           </div>
@@ -1316,7 +1309,7 @@
                 on:click={() => loadAssetIntoSlot("reference", imagePath)}
                 on:dragstart={(event) => startAssetDrag(event, imagePath, "reference")}
               >
-                <img alt="Reference asset" src={assetSrc(imagePath) ?? undefined} />
+                <img alt="参考素材" src={assetSrc(imagePath) ?? undefined} />
               </button>
             {/each}
           </div>
@@ -1324,25 +1317,25 @@
 
         <div class="drawer-section info-grid">
           <div>
-            <span class="meta-label">Task ID</span>
+            <span class="meta-label">任务 ID</span>
             <span class="meta-value">{selectedGeneration.taskId ?? "--"}</span>
           </div>
           <div>
-            <span class="meta-label">Created</span>
+            <span class="meta-label">创建时间</span>
             <span class="meta-value">{displayDate(selectedGeneration.createdAt)}</span>
           </div>
           <div>
-            <span class="meta-label">Updated</span>
+            <span class="meta-label">更新时间</span>
             <span class="meta-value">{displayDate(selectedGeneration.updatedAt)}</span>
           </div>
           <div>
-            <span class="meta-label">Reference count</span>
+            <span class="meta-label">参考图数量</span>
             <span class="meta-value">{selectedGeneration.referenceCount}</span>
           </div>
         </div>
 
         <div class="drawer-section">
-          <span class="meta-label">Parameters</span>
+          <span class="meta-label">参数</span>
           <pre>{selectedGeneration.paramsJson}</pre>
         </div>
       </div>
