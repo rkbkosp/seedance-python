@@ -508,9 +508,10 @@ pub fn list_resumable_generations(conn: &Connection) -> Result<Vec<ResumableGene
         r#"
         SELECT id, task_id, platform
         FROM generations
-        WHERE status IN ('queued', 'running')
+        WHERE status NOT IN ('cancelled', 'expired')
           AND task_id IS NOT NULL
           AND task_id != ''
+          AND (video_path IS NULL OR video_path = '')
         ORDER BY created_at ASC
         "#,
     )?;
