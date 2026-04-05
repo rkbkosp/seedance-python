@@ -52,12 +52,12 @@ impl BillingClient {
         let payload = "{}";
         let payload_hash = sha256_hex(payload);
         let signed_headers = if self.security_token.is_some() {
-            "content-type;host;x-content-sha256;x-date;x-security-token"
+            "host;x-content-sha256;x-date;x-security-token"
         } else {
-            "content-type;host;x-content-sha256;x-date"
+            "host;x-content-sha256;x-date"
         };
         let canonical_headers = format!(
-            "content-type:application/json; charset=utf-8\nhost:{BILLING_HOST}\nx-content-sha256:{payload_hash}\nx-date:{amz_date}\n{}",
+            "host:{BILLING_HOST}\nx-content-sha256:{payload_hash}\nx-date:{amz_date}\n{}",
             self.security_token
                 .as_ref()
                 .map(|token| format!("x-security-token:{token}\n"))
@@ -132,7 +132,7 @@ fn sha256_hex(value: &str) -> String {
 }
 
 fn signing_key(secret_key: &str, short_date: &str) -> Result<Vec<u8>> {
-    let k_date = hmac_bytes(format!("VOLC{secret_key}").as_bytes(), short_date)?;
+    let k_date = hmac_bytes(secret_key.as_bytes(), short_date)?;
     let k_region = hmac_bytes(&k_date, BILLING_REGION)?;
     let k_service = hmac_bytes(&k_region, BILLING_SERVICE)?;
     hmac_bytes(&k_service, "request")

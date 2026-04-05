@@ -2,6 +2,7 @@
 # requires-python = ">=3.11"
 # dependencies = [
 #   "httpx>=0.27,<1",
+#   "socksio",
 # ]
 # ///
 
@@ -36,7 +37,7 @@ def hmac_bytes(key: bytes, value: str) -> bytes:
 
 
 def sign(secret_key: str, short_date: str) -> bytes:
-    k_date = hmac_bytes(f"VOLC{secret_key}".encode("utf-8"), short_date)
+    k_date = hmac_bytes(secret_key.encode("utf-8"), short_date)
     k_region = hmac_bytes(k_date, BILLING_REGION)
     k_service = hmac_bytes(k_region, BILLING_SERVICE)
     return hmac_bytes(k_service, "request")
@@ -48,7 +49,7 @@ def build_headers(access_key: str, secret_key: str, security_token: str | None) 
     short_date = now.strftime("%Y%m%d")
     payload_hash = sha256_hex(PAYLOAD)
 
-    signed_headers = "content-type;host;x-content-sha256;x-date"
+    signed_headers = "host;x-content-sha256;x-date"
     extra_header = ""
     headers: dict[str, str] = {
         "Host": BILLING_HOST,
@@ -57,13 +58,12 @@ def build_headers(access_key: str, secret_key: str, security_token: str | None) 
         "X-Content-Sha256": payload_hash,
     }
     if security_token:
-        signed_headers = "content-type;host;x-content-sha256;x-date;x-security-token"
+        signed_headers = "host;x-content-sha256;x-date;x-security-token"
         extra_header = f"x-security-token:{security_token}\n"
         headers["X-Security-Token"] = security_token
 
     canonical_query = f"Action={ACTION}&Version={BILLING_VERSION}"
     canonical_headers = (
-        "content-type:application/json; charset=utf-8\n"
         f"host:{BILLING_HOST}\n"
         f"x-content-sha256:{payload_hash}\n"
         f"x-date:{amz_date}\n"
