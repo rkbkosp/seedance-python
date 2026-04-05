@@ -20,6 +20,20 @@ export type AppSettings = {
   model?: string | null;
   baseUrl?: string | null;
   pollInterval: number;
+  billingAccessKey: string;
+  billingSecretKey: string;
+  lowBalanceThreshold: number;
+};
+
+export type BalanceSnapshot = {
+  accountId?: string | null;
+  availableBalance?: string | null;
+  cashBalance?: string | null;
+  arrearsBalance?: string | null;
+  creditLimit?: string | null;
+  freezeAmount?: string | null;
+  updatedAt?: string | null;
+  errorMessage?: string | null;
 };
 
 export type GenerationSummary = {
@@ -57,6 +71,7 @@ export type HistoryPage = {
 
 export type BootstrapPayload = {
   settings: AppSettings;
+  balance: BalanceSnapshot;
   activeTasks: GenerationSummary[];
   history: HistoryPage;
   dataDir: string;
@@ -82,4 +97,8 @@ export type CreateGenerationRequest = {
 
 export type GenerationUpdatedEvent = {
   generationId: number;
+};
+
+export type BalanceUpdatedEvent = {
+  balance: BalanceSnapshot;
 };

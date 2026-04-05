@@ -1,3 +1,4 @@
+mod billing;
 mod db;
 mod models;
 mod seedance;
@@ -7,8 +8,8 @@ use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
 use chrono::{Datelike, Utc};
 use models::{
-    AppSettings, BootstrapPayload, CreateGenerationRequest, FileInputPayload, GenerationDetail,
-    GenerationUpdatedEvent, HistoryPage,
+    AppSettings, BalanceSnapshot, BalanceUpdatedEvent, BootstrapPayload, CreateGenerationRequest,
+    FileInputPayload, GenerationDetail, GenerationUpdatedEvent, HistoryPage,
 };
 use rusqlite::Connection;
 use seedance::{
@@ -26,6 +27,7 @@ use tokio::process::Command;
 use tokio::time::{sleep, Duration};
 
 use crate::models::GenerationSummary;
+use billing::BillingClient;
 
 #[derive(Clone)]
 struct AppState {
@@ -51,11 +53,13 @@ struct GenerationJob {
 fn bootstrap(state: State<'_, AppState>) -> Result<BootstrapPayload, String> {
     let conn = state.db.lock().map_err(lock_error)?;
     let settings = db::load_settings(&conn).map_err(error_to_string)?;
+    let balance = db::load_balance(&conn).map_err(error_to_string)?;
     let active_tasks = db::list_active_generations(&conn).map_err(error_to_string)?;
     let history = db::list_generations(&conn, 1, 10, None).map_err(error_to_string)?;
 
     Ok(BootstrapPayload {
         settings,
+        balance,
         active_tasks,
         history,
         data_dir: state.data_dir.display().to_string(),
@@ -64,7 +68,11 @@ fn bootstrap(state: State<'_, AppState>) -> Result<BootstrapPayload, String> {
 }
 
 #[tauri::command]
-fn save_settings(state: State<'_, AppState>, settings: AppSettings) -> Result<AppSettings, String> {
+fn save_settings(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    settings: AppSettings,
+) -> Result<AppSettings, String> {
     let sanitized = AppSettings {
         api_key: settings.api_key.trim().to_string(),
         platform: if settings.platform == "byteplus" {
@@ -79,10 +87,24 @@ fn save_settings(state: State<'_, AppState>, settings: AppSettings) -> Result<Ap
         } else {
             3.0
         },
+        billing_access_key: settings.billing_access_key.trim().to_string(),
+        billing_secret_key: settings.billing_secret_key.trim().to_string(),
+        low_balance_threshold: if settings.low_balance_threshold >= 0.0 {
+            settings.low_balance_threshold
+        } else {
+            100.0
+        },
     };
 
     let conn = state.db.lock().map_err(lock_error)?;
-    db::save_settings(&conn, &sanitized).map_err(error_to_string)
+    let saved = db::save_settings(&conn, &sanitized).map_err(error_to_string)?;
+    drop(conn);
+
+    if !saved.billing_access_key.is_empty() && !saved.billing_secret_key.is_empty() {
+        schedule_balance_refresh(app, state.inner().clone(), Duration::from_secs(0));
+    }
+
+    Ok(saved)
 }
 
 #[tauri::command]
@@ -108,6 +130,16 @@ fn get_generation(state: State<'_, AppState>, generation_id: i64) -> Result<Gene
 fn list_active_generations(state: State<'_, AppState>) -> Result<Vec<GenerationSummary>, String> {
     let conn = state.db.lock().map_err(lock_error)?;
     db::list_active_generations(&conn).map_err(error_to_string)
+}
+
+#[tauri::command]
+async fn refresh_balance(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<BalanceSnapshot, String> {
+    query_and_store_balance(&app, state.inner().clone())
+        .await
+        .map_err(error_to_string)
 }
 
 #[tauri::command]
@@ -438,7 +470,51 @@ async fn poll_generation_task(
         sleep(Duration::from_millis((duration * 1000.0) as u64)).await;
     }
 
+    schedule_balance_refresh(app, state, Duration::from_secs(5));
+
     Ok(())
+}
+
+async fn query_and_store_balance(app: &AppHandle, state: AppState) -> Result<BalanceSnapshot> {
+    let settings = {
+        let conn = state.db.lock().map_err(|error| anyhow!(error.to_string()))?;
+        db::load_settings(&conn)?
+    };
+
+    if settings.billing_access_key.trim().is_empty() || settings.billing_secret_key.trim().is_empty() {
+        let conn = state.db.lock().map_err(|error| anyhow!(error.to_string()))?;
+        return db::load_balance(&conn);
+    }
+
+    let snapshot = match BillingClient::new(&settings.billing_access_key, &settings.billing_secret_key)?
+        .query_balance()
+        .await
+    {
+        Ok(snapshot) => snapshot,
+        Err(error) => {
+            let conn = state.db.lock().map_err(|inner| anyhow!(inner.to_string()))?;
+            let mut cached = db::load_balance(&conn)?;
+            cached.updated_at = Some(now_string());
+            cached.error_message = Some(error.to_string());
+            cached
+        }
+    };
+
+    let saved = {
+        let conn = state.db.lock().map_err(|error| anyhow!(error.to_string()))?;
+        db::save_balance(&conn, &snapshot)?
+    };
+    emit_balance_updated(app, saved.clone());
+    Ok(saved)
+}
+
+fn schedule_balance_refresh(app: AppHandle, state: AppState, delay: Duration) {
+    tauri::async_runtime::spawn(async move {
+        if !delay.is_zero() {
+            sleep(delay).await;
+        }
+        let _ = query_and_store_balance(&app, state).await;
+    });
 }
 
 fn finalize_generation_failure(app: &AppHandle, state: &AppState, generation_id: i64, message: &str) {
@@ -670,6 +746,10 @@ fn emit_generation_updated(app: &AppHandle, generation_id: i64) {
     );
 }
 
+fn emit_balance_updated(app: &AppHandle, balance: BalanceSnapshot) {
+    let _ = app.emit("billing-balance-updated", BalanceUpdatedEvent { balance });
+}
+
 fn error_to_string(error: impl std::fmt::Display) -> String {
     error.to_string()
 }
@@ -716,11 +796,13 @@ pub fn run() {
             let state = build_app_state(app)?;
             app.manage(state.clone());
             resume_pending_generations(app.handle(), &state)?;
+            schedule_balance_refresh(app.handle().clone(), state.clone(), Duration::from_secs(0));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             bootstrap,
             save_settings,
+            refresh_balance,
             list_generations,
             get_generation,
             list_active_generations,

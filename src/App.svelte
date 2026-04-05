@@ -7,6 +7,8 @@
   import { loadDraftPrompt, saveDraftPrompt } from "./lib/storage";
   import type {
     AppSettings,
+    BalanceSnapshot,
+    BalanceUpdatedEvent,
     BootstrapPayload,
     CreateGenerationRequest,
     FileInputPayload,
@@ -22,6 +24,9 @@
     model: "",
     baseUrl: "",
     pollInterval: 3,
+    billingAccessKey: "",
+    billingSecretKey: "",
+    lowBalanceThreshold: 100,
   };
 
   const ratioOptions = ["16:9", "4:3", "1:1", "3:4", "9:16", "21:9", "adaptive"];
@@ -49,6 +54,7 @@
   let history: HistoryPage = { items: [], page: 1, pageSize: 10, total: 0 };
   let activeTasks: GenerationSummary[] = [];
   let selectedGeneration: GenerationDetail | null = null;
+  let balance: BalanceSnapshot = {};
 
   let dataDir = "";
   let artifactsDir = "";
@@ -59,6 +65,7 @@
   let isBootstrapping = true;
   let isSavingSettings = false;
   let isSubmitting = false;
+  let isRefreshingBalance = false;
   let drawerOpen = false;
   let feedback = "";
   let errorMessage = "";
@@ -69,6 +76,10 @@
     day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+  });
+  const amountFormatter = new Intl.NumberFormat(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   });
 
   function assetSrc(path?: string | null): string | null {
@@ -110,6 +121,7 @@
         model: payload.settings.model ?? "",
         baseUrl: payload.settings.baseUrl ?? "",
       };
+      balance = payload.balance;
       activeTasks = payload.activeTasks;
       history = payload.history;
       dataDir = payload.dataDir;
@@ -150,6 +162,9 @@
         model: settings.model ?? "",
         baseUrl: settings.baseUrl ?? "",
       };
+      if (settings.billingAccessKey && settings.billingSecretKey) {
+        await refreshBalanceAction(false);
+      }
       setFeedback("Settings saved");
     } catch (error) {
       setError(String(error));
@@ -453,7 +468,7 @@
 
     void (async () => {
       await bootstrap();
-      unlisten = await listen<GenerationUpdatedEvent>(
+      const unlistenGeneration = await listen<GenerationUpdatedEvent>(
         "generation-updated",
         async ({ payload }) => {
           try {
@@ -466,6 +481,16 @@
           }
         },
       );
+      const unlistenBalance = await listen<BalanceUpdatedEvent>(
+        "billing-balance-updated",
+        ({ payload }) => {
+          balance = payload.balance;
+        },
+      );
+      unlisten = () => {
+        unlistenGeneration();
+        unlistenBalance();
+      };
     })();
 
     return () => {
@@ -564,6 +589,64 @@
 
     referenceImages = [...referenceImages, asset];
     setFeedback("Reference image appended from history");
+  }
+
+  function amountValue(value?: string | null): number | null {
+    if (value == null || value === "") return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  function formatAmount(value?: string | null): string {
+    const parsed = amountValue(value);
+    return parsed == null ? "--" : amountFormatter.format(parsed);
+  }
+
+  function isBillingConfigured(): boolean {
+    return Boolean(settings.billingAccessKey && settings.billingSecretKey);
+  }
+
+  function isLowBalance(): boolean {
+    const available = amountValue(balance.availableBalance);
+    return available != null && settings.lowBalanceThreshold > 0 && available <= settings.lowBalanceThreshold;
+  }
+
+  function hasArrears(): boolean {
+    const arrears = amountValue(balance.arrearsBalance);
+    return arrears != null && arrears > 0;
+  }
+
+  function balanceStatusText(): string {
+    if (!isBillingConfigured()) return "Configure Billing AK/SK to enable balance tracking.";
+    if (hasArrears()) {
+      return balance.errorMessage
+        ? `Account has arrears. Last refresh failed: ${balance.errorMessage}`
+        : "Account has arrears. Top up before more tasks consume quota.";
+    }
+    if (isLowBalance()) {
+      return balance.errorMessage
+        ? `Available balance is below the warning threshold (${formatAmount(String(settings.lowBalanceThreshold))}). Last refresh failed: ${balance.errorMessage}`
+        : `Available balance is below the warning threshold (${formatAmount(String(settings.lowBalanceThreshold))}).`;
+    }
+    if (balance.errorMessage) return balance.errorMessage;
+    return "Balance is healthy.";
+  }
+
+  async function refreshBalanceAction(showFeedback = true): Promise<void> {
+    if (!isBillingConfigured()) {
+      if (showFeedback) setError("Billing AK/SK are not configured yet.");
+      return;
+    }
+
+    isRefreshingBalance = true;
+    try {
+      balance = await invoke<BalanceSnapshot>("refresh_balance");
+      if (showFeedback) setFeedback("Billing balance refreshed");
+    } catch (error) {
+      setError(String(error));
+    } finally {
+      isRefreshingBalance = false;
+    }
   }
 </script>
 
@@ -753,8 +836,8 @@
     <aside class="panel settings-panel">
       <div class="panel-header">
         <div>
-          <p class="panel-kicker">Connection</p>
-          <h2>Saved settings</h2>
+          <p class="panel-kicker">Key Management</p>
+          <h2>Credentials and billing</h2>
         </div>
         <button class="secondary-button" disabled={isSavingSettings} on:click={saveSettingsAction}>
           {#if isSavingSettings}Saving...{:else}Save{/if}
@@ -762,7 +845,7 @@
       </div>
 
       <label class="field">
-        <span>API key</span>
+        <span>Seedance API key</span>
         <input bind:value={settings.apiKey} placeholder="ARK API key" type="password" />
       </label>
 
@@ -791,8 +874,74 @@
         <input bind:value={settings.baseUrl} placeholder="Optional" type="text" />
       </label>
 
+      <div class="subpanel">
+        <div class="subpanel-head">
+          <div>
+            <p class="panel-kicker minor">Billing</p>
+            <h3>Balance API credentials</h3>
+          </div>
+          <button class="secondary-button" disabled={isRefreshingBalance} on:click={() => refreshBalanceAction()}>
+            {#if isRefreshingBalance}Refreshing...{:else}Refresh balance{/if}
+          </button>
+        </div>
+
+        <label class="field">
+          <span>Billing AccessKey</span>
+          <input bind:value={settings.billingAccessKey} placeholder="Volcengine billing AK" type="password" />
+        </label>
+
+        <label class="field">
+          <span>Billing SecretKey</span>
+          <input bind:value={settings.billingSecretKey} placeholder="Volcengine billing SK" type="password" />
+        </label>
+
+        <label class="field">
+          <span>Low balance warning threshold</span>
+          <input bind:value={settings.lowBalanceThreshold} min="0" step="1" type="number" />
+        </label>
+
+        <div class={`balance-banner ${hasArrears() ? "danger" : isLowBalance() ? "warn" : "ok"}`}>
+          <strong>{balanceStatusText()}</strong>
+          <span>
+            {#if balance.updatedAt}
+              Updated {displayDate(balance.updatedAt)}
+            {:else}
+              Waiting for first successful balance sync
+            {/if}
+          </span>
+        </div>
+
+        <div class="balance-grid">
+          <div class="balance-card featured">
+            <span class="meta-label">Available</span>
+            <strong>{formatAmount(balance.availableBalance)}</strong>
+          </div>
+          <div class="balance-card">
+            <span class="meta-label">Cash</span>
+            <strong>{formatAmount(balance.cashBalance)}</strong>
+          </div>
+          <div class="balance-card">
+            <span class="meta-label">Arrears</span>
+            <strong>{formatAmount(balance.arrearsBalance)}</strong>
+          </div>
+          <div class="balance-card">
+            <span class="meta-label">Credit Limit</span>
+            <strong>{formatAmount(balance.creditLimit)}</strong>
+          </div>
+          <div class="balance-card">
+            <span class="meta-label">Frozen</span>
+            <strong>{formatAmount(balance.freezeAmount)}</strong>
+          </div>
+          <div class="balance-card">
+            <span class="meta-label">Account ID</span>
+            <strong>{balance.accountId ?? "--"}</strong>
+          </div>
+        </div>
+      </div>
+
       <div class="settings-note">
-        Keep these saved locally so the composer only needs prompt and image changes between runs.
+        All keys are saved locally inside the app database on this machine. Billing balance is refreshed manually,
+        on startup, and again five seconds after each task reaches a terminal state.
       </div>
     </aside>
   </section>
@@ -1132,6 +1281,12 @@
     font-size: 1.45rem;
   }
 
+  h3 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+  }
+
   .hero-copy {
     max-width: 72ch;
     margin: 1rem 0 0;
@@ -1191,6 +1346,12 @@
     gap: 1rem;
     align-items: start;
     margin-bottom: 1rem;
+  }
+
+  .panel-kicker.minor {
+    margin-bottom: 0.2rem;
+    font-size: 0.72rem;
+    letter-spacing: 0.12em;
   }
 
   .panel-header.compact {
@@ -1364,6 +1525,75 @@
   .history-progress,
   .empty-state {
     color: var(--text-dim);
+  }
+
+  .subpanel {
+    display: grid;
+    gap: 0.85rem;
+    margin-top: 1rem;
+    padding: 1rem;
+    border-radius: 20px;
+    border: 1px solid var(--line);
+    background: rgba(8, 23, 20, 0.78);
+  }
+
+  .subpanel-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.8rem;
+    align-items: start;
+  }
+
+  .balance-banner {
+    display: grid;
+    gap: 0.25rem;
+    padding: 0.85rem 0.95rem;
+    border-radius: 18px;
+    border: 1px solid var(--line);
+  }
+
+  .balance-banner.ok {
+    background: rgba(109, 226, 187, 0.08);
+    border-color: rgba(109, 226, 187, 0.2);
+  }
+
+  .balance-banner.warn {
+    background: rgba(255, 196, 95, 0.08);
+    border-color: rgba(255, 196, 95, 0.28);
+  }
+
+  .balance-banner.danger {
+    background: rgba(255, 142, 111, 0.1);
+    border-color: rgba(255, 142, 111, 0.36);
+  }
+
+  .balance-banner span {
+    color: var(--text-dim);
+    font-size: 0.84rem;
+  }
+
+  .balance-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+  }
+
+  .balance-card {
+    display: grid;
+    gap: 0.3rem;
+    padding: 0.8rem 0.9rem;
+    border-radius: 18px;
+    border: 1px solid var(--line);
+    background: rgba(10, 22, 20, 0.88);
+  }
+
+  .balance-card.featured {
+    border-color: rgba(109, 226, 187, 0.26);
+    background: linear-gradient(180deg, rgba(16, 46, 40, 0.98), rgba(10, 22, 20, 0.92));
+  }
+
+  .balance-card strong {
+    font-size: 1.1rem;
   }
 
   .active-list {

@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use rusqlite::{params, Connection, OptionalExtension, Row};
 
-use crate::models::{AppSettings, GenerationDetail, GenerationSummary, HistoryPage};
+use crate::models::{AppSettings, BalanceSnapshot, GenerationDetail, GenerationSummary, HistoryPage};
 
 #[derive(Debug, Clone)]
 pub struct ResumableGeneration {
@@ -21,11 +21,29 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
             platform TEXT NOT NULL DEFAULT 'volc',
             model TEXT,
             base_url TEXT,
-            poll_interval REAL NOT NULL DEFAULT 3.0
+            poll_interval REAL NOT NULL DEFAULT 3.0,
+            billing_access_key TEXT NOT NULL DEFAULT '',
+            billing_secret_key TEXT NOT NULL DEFAULT '',
+            low_balance_threshold REAL NOT NULL DEFAULT 100.0
         );
 
         INSERT OR IGNORE INTO app_settings (id, api_key, platform, poll_interval)
         VALUES (1, '', 'volc', 3.0);
+
+        CREATE TABLE IF NOT EXISTS balance_cache (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            account_id TEXT,
+            available_balance TEXT,
+            cash_balance TEXT,
+            arrears_balance TEXT,
+            credit_limit TEXT,
+            freeze_amount TEXT,
+            updated_at TEXT,
+            error_message TEXT
+        );
+
+        INSERT OR IGNORE INTO balance_cache (id)
+        VALUES (1);
 
         CREATE TABLE IF NOT EXISTS generations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -63,6 +81,15 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
         "#,
     )?;
 
+    add_column_if_missing(conn, "app_settings", "billing_access_key", "TEXT NOT NULL DEFAULT ''")?;
+    add_column_if_missing(conn, "app_settings", "billing_secret_key", "TEXT NOT NULL DEFAULT ''")?;
+    add_column_if_missing(
+        conn,
+        "app_settings",
+        "low_balance_threshold",
+        "REAL NOT NULL DEFAULT 100.0",
+    )?;
+
     Ok(())
 }
 
@@ -70,7 +97,15 @@ pub fn load_settings(conn: &Connection) -> Result<AppSettings> {
     let settings = conn
         .query_row(
             r#"
-            SELECT api_key, platform, model, base_url, poll_interval
+            SELECT
+                api_key,
+                platform,
+                model,
+                base_url,
+                poll_interval,
+                billing_access_key,
+                billing_secret_key,
+                low_balance_threshold
             FROM app_settings
             WHERE id = 1
             "#,
@@ -82,6 +117,9 @@ pub fn load_settings(conn: &Connection) -> Result<AppSettings> {
                     model: row.get(2)?,
                     base_url: row.get(3)?,
                     poll_interval: row.get(4)?,
+                    billing_access_key: row.get(5)?,
+                    billing_secret_key: row.get(6)?,
+                    low_balance_threshold: row.get(7)?,
                 })
             },
         )
@@ -93,25 +131,116 @@ pub fn load_settings(conn: &Connection) -> Result<AppSettings> {
 pub fn save_settings(conn: &Connection, settings: &AppSettings) -> Result<AppSettings> {
     conn.execute(
         r#"
-        INSERT INTO app_settings (id, api_key, platform, model, base_url, poll_interval)
-        VALUES (1, ?1, ?2, ?3, ?4, ?5)
+        INSERT INTO app_settings (
+            id,
+            api_key,
+            platform,
+            model,
+            base_url,
+            poll_interval,
+            billing_access_key,
+            billing_secret_key,
+            low_balance_threshold
+        )
+        VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
         ON CONFLICT(id) DO UPDATE SET
             api_key = excluded.api_key,
             platform = excluded.platform,
             model = excluded.model,
             base_url = excluded.base_url,
-            poll_interval = excluded.poll_interval
+            poll_interval = excluded.poll_interval,
+            billing_access_key = excluded.billing_access_key,
+            billing_secret_key = excluded.billing_secret_key,
+            low_balance_threshold = excluded.low_balance_threshold
         "#,
         params![
             settings.api_key,
             settings.platform,
             settings.model,
             settings.base_url,
-            settings.poll_interval
+            settings.poll_interval,
+            settings.billing_access_key,
+            settings.billing_secret_key,
+            settings.low_balance_threshold
         ],
     )?;
 
     load_settings(conn)
+}
+
+pub fn load_balance(conn: &Connection) -> Result<BalanceSnapshot> {
+    let balance = conn
+        .query_row(
+            r#"
+            SELECT
+                account_id,
+                available_balance,
+                cash_balance,
+                arrears_balance,
+                credit_limit,
+                freeze_amount,
+                updated_at,
+                error_message
+            FROM balance_cache
+            WHERE id = 1
+            "#,
+            [],
+            |row| {
+                Ok(BalanceSnapshot {
+                    account_id: row.get(0)?,
+                    available_balance: row.get(1)?,
+                    cash_balance: row.get(2)?,
+                    arrears_balance: row.get(3)?,
+                    credit_limit: row.get(4)?,
+                    freeze_amount: row.get(5)?,
+                    updated_at: row.get(6)?,
+                    error_message: row.get(7)?,
+                })
+            },
+        )
+        .optional()?;
+
+    Ok(balance.unwrap_or_default())
+}
+
+pub fn save_balance(conn: &Connection, balance: &BalanceSnapshot) -> Result<BalanceSnapshot> {
+    conn.execute(
+        r#"
+        INSERT INTO balance_cache (
+            id,
+            account_id,
+            available_balance,
+            cash_balance,
+            arrears_balance,
+            credit_limit,
+            freeze_amount,
+            updated_at,
+            error_message
+        )
+        VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+        ON CONFLICT(id) DO UPDATE SET
+            account_id = excluded.account_id,
+            available_balance = excluded.available_balance,
+            cash_balance = excluded.cash_balance,
+            arrears_balance = excluded.arrears_balance,
+            credit_limit = excluded.credit_limit,
+            freeze_amount = excluded.freeze_amount,
+            updated_at = excluded.updated_at,
+            error_message = excluded.error_message
+        "#,
+        params![
+            balance.account_id,
+            balance.available_balance,
+            balance.cash_balance,
+            balance.arrears_balance,
+            balance.credit_limit,
+            balance.freeze_amount,
+            balance.updated_at,
+            balance.error_message
+        ],
+    )?;
+
+    load_balance(conn)
 }
 
 pub fn insert_generation(
@@ -504,4 +633,19 @@ fn row_to_summary(row: &Row<'_>) -> rusqlite::Result<GenerationSummary> {
         returned_last_frame_path: row.get(14)?,
         reference_count: row.get::<_, i64>(15)? as usize,
     })
+}
+
+fn add_column_if_missing(conn: &Connection, table: &str, column: &str, definition: &str) -> Result<()> {
+    let pragma = format!("PRAGMA table_info({table})");
+    let mut stmt = conn.prepare(&pragma)?;
+    let columns = stmt
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
+    if !columns.iter().any(|name| name == column) {
+        let sql = format!("ALTER TABLE {table} ADD COLUMN {column} {definition}");
+        conn.execute(&sql, [])?;
+    }
+
+    Ok(())
 }

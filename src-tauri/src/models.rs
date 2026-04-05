@@ -8,6 +8,9 @@ pub struct AppSettings {
     pub model: Option<String>,
     pub base_url: Option<String>,
     pub poll_interval: f64,
+    pub billing_access_key: String,
+    pub billing_secret_key: String,
+    pub low_balance_threshold: f64,
 }
 
 impl Default for AppSettings {
@@ -18,8 +21,24 @@ impl Default for AppSettings {
             model: None,
             base_url: None,
             poll_interval: 3.0,
+            billing_access_key: String::new(),
+            billing_secret_key: String::new(),
+            low_balance_threshold: 100.0,
         }
     }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BalanceSnapshot {
+    pub account_id: Option<String>,
+    pub available_balance: Option<String>,
+    pub cash_balance: Option<String>,
+    pub arrears_balance: Option<String>,
+    pub credit_limit: Option<String>,
+    pub freeze_amount: Option<String>,
+    pub updated_at: Option<String>,
+    pub error_message: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -110,6 +129,7 @@ pub struct HistoryPage {
 #[serde(rename_all = "camelCase")]
 pub struct BootstrapPayload {
     pub settings: AppSettings,
+    pub balance: BalanceSnapshot,
     pub active_tasks: Vec<GenerationSummary>,
     pub history: HistoryPage,
     pub data_dir: String,
@@ -122,3 +142,8 @@ pub struct GenerationUpdatedEvent {
     pub generation_id: i64,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BalanceUpdatedEvent {
+    pub balance: BalanceSnapshot,
+}
