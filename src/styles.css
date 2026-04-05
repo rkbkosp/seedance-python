@@ -1,18 +1,18 @@
 :root {
-  color-scheme: dark;
+  color-scheme: light;
   font-family: "Avenir Next", "Segoe UI", "Helvetica Neue", sans-serif;
-  --bg: #081512;
-  --bg-elevated: rgba(12, 30, 26, 0.9);
-  --bg-card: rgba(16, 40, 35, 0.78);
-  --bg-card-strong: rgba(18, 52, 45, 0.94);
-  --text: #eef6f2;
-  --text-dim: #93b6aa;
-  --line: rgba(133, 190, 173, 0.18);
-  --line-strong: rgba(133, 190, 173, 0.34);
-  --accent: #6de2bb;
-  --accent-strong: #3cbd93;
-  --warn: #ff8e6f;
-  --shadow: 0 24px 72px rgba(0, 0, 0, 0.32);
+  --bg: #f5f7fb;
+  --bg-elevated: #ffffff;
+  --bg-card: #ffffff;
+  --bg-card-strong: #f7f9fc;
+  --text: #172b4d;
+  --text-dim: #66758c;
+  --line: #d9e2ec;
+  --line-strong: #cbd5e1;
+  --accent: #0c8f68;
+  --accent-strong: #087857;
+  --warn: #d97706;
+  --shadow: 0 24px 72px rgba(15, 23, 42, 0.08);
 }
 
 * {
@@ -28,9 +28,9 @@ body,
 
 body {
   background:
-    radial-gradient(circle at top left, rgba(73, 167, 136, 0.18), transparent 28%),
-    radial-gradient(circle at top right, rgba(79, 123, 255, 0.12), transparent 24%),
-    linear-gradient(180deg, #0b1915 0%, #081512 55%, #07120f 100%);
+    radial-gradient(circle at top left, rgba(12, 143, 104, 0.08), transparent 30%),
+    radial-gradient(circle at top right, rgba(54, 103, 191, 0.08), transparent 26%),
+    linear-gradient(180deg, #fbfcfe 0%, #f5f7fb 50%, #eef2f7 100%);
   color: var(--text);
 }
 
@@ -48,4 +48,3 @@ button {
 a {
   color: inherit;
 }
-

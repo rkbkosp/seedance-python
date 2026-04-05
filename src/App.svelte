@@ -32,6 +32,7 @@
 
   const ratioOptions = ["16:9", "4:3", "1:1", "3:4", "9:16", "21:9", "adaptive"];
   const resolutionOptions = ["480p", "720p", "1080p"];
+  const durationOptions = [4, 5, 6, 7, 8, 9, 10, 11, 12];
 
   let settings: AppSettings = { ...DEFAULT_SETTINGS };
   let form = {
@@ -96,7 +97,15 @@
   }
 
   function statusLabel(status: string): string {
-    return status.replaceAll("_", " ");
+    const labels: Record<string, string> = {
+      queued: "已排队",
+      running: "生成中",
+      succeeded: "已成功",
+      failed: "已失败",
+      cancelled: "已取消",
+      expired: "已过期",
+    };
+    return labels[status] ?? status.replaceAll("_", " ");
   }
 
   function displayDate(value?: string | null): string {
@@ -769,221 +778,122 @@
 </svelte:head>
 
 <div class="studio-shell">
-  <header class="hero">
-    <div>
-      <p class="eyebrow">Seedance Studio</p>
-      <h1>在同一个桌面工作台里完成提示词编辑、历史回看和本地素材管理。</h1>
-      <p class="hero-copy">
-        应用会把每次生成结果落盘保存，用轻量缩略图预览历史记录，并且允许你不离开当前窗口就把旧提示词和参考素材重新拖回创作区复用。
-      </p>
-    </div>
-    <div class="meta-panel">
-      <div>
-        <span class="meta-label">数据目录</span>
-        <span class="meta-value">{dataDir || "正在初始化..."}</span>
-      </div>
-      <div>
-        <span class="meta-label">素材目录</span>
-        <span class="meta-value">{artifactsDir || "正在准备存储..."}</span>
-      </div>
-      <div class:success={Boolean(feedback)} class:error={Boolean(errorMessage)}>
-        {#if errorMessage}
-          <span>{errorMessage}</span>
-        {:else}
-          <span>{feedback}</span>
-        {/if}
-      </div>
-    </div>
-  </header>
+  <div class="workspace-shell">
+    <aside class="sidebar sidebar-billing">
+      <section class="sidebar-card">
+        <div class="sidebar-header">
+          <div>
+            <p class="panel-kicker minor">计费</p>
+            <h2>余额</h2>
+          </div>
+          <button class="secondary-button compact" disabled={isRefreshingBalance} on:click={() => refreshBalanceAction()}>
+            {#if isRefreshingBalance}刷新中{:else}刷新{/if}
+          </button>
+        </div>
 
-  <section class="top-grid">
-    <div class="panel composer-panel">
-      <div class="panel-header">
+        <div class={`balance-banner ${hasArrears() ? "danger" : isLowBalance() ? "warn" : "ok"}`}>
+          <strong>{balanceStatusText()}</strong>
+          <span>
+            {#if balance.updatedAt}
+              更新时间：{displayDate(balance.updatedAt)}
+            {:else}
+              等待首次同步
+            {/if}
+          </span>
+        </div>
+
+        <div class="balance-grid">
+          <div class="balance-card featured">
+            <span class="meta-label">可用余额</span>
+            <strong>{formatAmount(balance.availableBalance)}</strong>
+          </div>
+          <div class="balance-card">
+            <span class="meta-label">现金余额</span>
+            <strong>{formatAmount(balance.cashBalance)}</strong>
+          </div>
+          <div class="balance-card">
+            <span class="meta-label">欠费金额</span>
+            <strong>{formatAmount(balance.arrearsBalance)}</strong>
+          </div>
+          <div class="balance-card">
+            <span class="meta-label">信用额度</span>
+            <strong>{formatAmount(balance.creditLimit)}</strong>
+          </div>
+          <div class="balance-card">
+            <span class="meta-label">冻结金额</span>
+            <strong>{formatAmount(balance.freezeAmount)}</strong>
+          </div>
+          <div class="balance-card">
+            <span class="meta-label">账户 ID</span>
+            <strong>{balance.accountId ?? "--"}</strong>
+          </div>
+        </div>
+
+        <div class="field">
+          <span>Billing AccessKey</span>
+          <input bind:value={settings.billingAccessKey} placeholder="输入火山计费 AccessKey" type="password" />
+        </div>
+
+        <div class="field">
+          <span>Billing SecretKey</span>
+          <input bind:value={settings.billingSecretKey} placeholder="输入火山计费 SecretKey" type="password" />
+        </div>
+
+        <div class="field">
+          <span>Billing Security Token</span>
+          <input bind:value={settings.billingSecurityToken} placeholder="可选：临时凭证时填写" type="password" />
+        </div>
+
+        <div class="field">
+          <span>低余额告警阈值</span>
+          <input bind:value={settings.lowBalanceThreshold} min="0" step="1" type="number" />
+        </div>
+
+        <p class="settings-note">
+          若使用 API Explorer 的临时凭证，除了 AccessKey 和 SecretKey，还需要把 `X-Security-Token` 一并填入。
+        </p>
+      </section>
+    </aside>
+
+    <main class="history-surface">
+      <section class="surface-card surface-header">
         <div>
-          <p class="panel-kicker">创作区</p>
-          <h2>创建新的视频任务</h2>
+          <p class="eyebrow">Seedance Studio</p>
+          <h1>历史任务</h1>
+          <p class="surface-subtitle">主界面直接浏览历史任务，输入区固定悬浮在底部，像聊天一样连续创作。</p>
         </div>
-        <button class="primary-button" disabled={isSubmitting || isBootstrapping} on:click={submitGeneration}>
-          {#if isSubmitting}正在入队...{:else}开始生成{/if}
-        </button>
-      </div>
-
-      <label class="field">
-        <span>提示词</span>
-        <textarea
-          class="prompt-field"
-          placeholder="描述动作、镜头运动、氛围和节奏。"
-          value={form.prompt}
-          on:input={(event) => updatePromptDraft((event.currentTarget as HTMLTextAreaElement).value)}
-          on:dragover={allowDrop}
-          on:drop={handlePromptDrop}
-        ></textarea>
-      </label>
-
-      <div class="asset-grid">
-        <div
-          class="field drop-field"
-          role="group"
-          aria-label="首帧投放区"
-          on:dragover={allowDrop}
-          on:drop={(event) => handleAssetDrop(event, "first")}
-        >
-          <div class="field-head">
-            <span>首帧</span>
-            {#if firstFrame}
-              <button class="link-button" on:click={() => { revokePreview(firstFrame); firstFrame = null; }}>
-                清空
-              </button>
-            {/if}
+        <div class="surface-meta">
+          <div class="meta-box">
+            <span class="meta-label">数据目录</span>
+            <span class="meta-value">{dataDir || "正在初始化..."}</span>
           </div>
-          <label class="asset-box">
-            {#if firstFrame?.previewUrl}
-              <img src={firstFrame.previewUrl} alt="首帧预览" />
+          <div class="meta-box">
+            <span class="meta-label">素材目录</span>
+            <span class="meta-value">{artifactsDir || "正在准备存储..."}</span>
+          </div>
+          <div class:success={Boolean(feedback)} class:error={Boolean(errorMessage)} class="meta-box status-box">
+            {#if errorMessage}
+              <span>{errorMessage}</span>
             {:else}
-              <span>把可复用图片拖到这里，或者上传一张新图片。</span>
-            {/if}
-            <input accept="image/*" type="file" on:change={(event) => handleSingleFileChange(event, "first")} />
-          </label>
-        </div>
-
-        <div
-          class="field drop-field"
-          role="group"
-          aria-label="输入尾帧投放区"
-          on:dragover={allowDrop}
-          on:drop={(event) => handleAssetDrop(event, "last")}
-        >
-          <div class="field-head">
-            <span>输入尾帧</span>
-            {#if inputLastFrame}
-              <button class="link-button" on:click={() => { revokePreview(inputLastFrame); inputLastFrame = null; }}>
-                清空
-              </button>
-            {/if}
-          </div>
-          <label class="asset-box">
-            {#if inputLastFrame?.previewUrl}
-              <img src={inputLastFrame.previewUrl} alt="输入尾帧预览" />
-            {:else}
-              <span>在生成前先设定最终构图目标。</span>
-            {/if}
-            <input accept="image/*" type="file" on:change={(event) => handleSingleFileChange(event, "last")} />
-          </label>
-        </div>
-
-        <div
-          class="field drop-field wide"
-          role="group"
-          aria-label="参考图投放区"
-          on:dragover={allowDrop}
-          on:drop={(event) => handleAssetDrop(event, "reference")}
-        >
-          <div class="field-head">
-            <span>参考图</span>
-            <label class="upload-chip">
-              添加
-              <input accept="image/*" multiple type="file" on:change={handleReferenceFilesChange} />
-            </label>
-          </div>
-          <div class="reference-strip">
-            {#if referenceImages.length}
-              {#each referenceImages as asset, index}
-                <div class="reference-card">
-                  {#if asset.previewUrl}
-                    <img src={asset.previewUrl} alt={`Reference ${index + 1}`} />
-                  {/if}
-                  <button class="remove-button" on:click={() => removeReference(index)}>移除</button>
-                </div>
-              {/each}
-            {:else}
-              <p class="reference-placeholder">把历史素材拖到这里会追加到当前列表，不会覆盖已有参考图。</p>
+              <span>{feedback}</span>
             {/if}
           </div>
         </div>
-      </div>
+      </section>
 
-      <div class="controls-grid">
-        <label class="field">
-          <span>画幅比例</span>
-          <select bind:value={form.ratio}>
-            {#each ratioOptions as option}
-              <option value={option}>{option}</option>
-            {/each}
-          </select>
-        </label>
-
-        <label class="field">
-          <span>分辨率</span>
-          <select bind:value={form.resolution}>
-            {#each resolutionOptions as option}
-              <option value={option}>{option}</option>
-            {/each}
-          </select>
-        </label>
-
-        <label class="field">
-          <span>时长（秒）</span>
-          <input bind:value={form.duration} min="1" step="1" type="number" />
-        </label>
-
-        <label class="field">
-          <span>帧数</span>
-          <input bind:value={form.frames} min="1" step="1" placeholder="可选" type="number" />
-        </label>
-
-        <label class="field">
-          <span>随机种子</span>
-          <input bind:value={form.seed} min="0" step="1" placeholder="可选" type="number" />
-        </label>
-      </div>
-
-      <div class="toggle-row">
-        <label><input bind:checked={form.returnLastFrame} type="checkbox" /> 返回尾帧</label>
-        <label><input bind:checked={form.cameraFixed} type="checkbox" /> 固定镜头</label>
-        <label><input bind:checked={form.watermark} type="checkbox" /> 添加水印</label>
-        <label><input bind:checked={form.generateAudio} type="checkbox" /> 生成音频</label>
-        <label><input bind:checked={form.draft} type="checkbox" /> 草稿模式</label>
-      </div>
-    </div>
-  </section>
-
-  <section class="panel active-panel">
-    <div class="panel-header compact">
-      <div>
-        <p class="panel-kicker">实时队列</p>
-        <h2>进行中的任务</h2>
-      </div>
-      <span class="count-pill">{activeTasks.length}</span>
-    </div>
-
-    {#if activeTasks.length}
-      <div class="active-list">
-        {#each activeTasks as item}
-          <button class="active-card" on:click={() => openDetail(item.id)}>
-            <div class="spinner-cluster">
+      {#if activeTasks.length}
+        <section class="surface-card active-strip">
+          {#each activeTasks as item}
+            <button class="active-pill" on:click={() => openDetail(item.id)}>
               <span class="spinner-ring"></span>
               <span class={`status-chip status-${item.status}`}>{statusLabel(item.status)}</span>
-            </div>
-            <div class="active-copy">
               <strong>{item.promptSummary}</strong>
-              <span>{item.progressText ?? "等待远端进度返回..."}</span>
-            </div>
-            <time>{displayDate(item.updatedAt)}</time>
-          </button>
-        {/each}
-      </div>
-    {:else}
-      <div class="empty-state small">当前没有进行中的任务。</div>
-    {/if}
-  </section>
+            </button>
+          {/each}
+        </section>
+      {/if}
 
-  <section class="panel history-panel">
-    <div class="panel-header">
-      <div>
-        <p class="panel-kicker">历史记录</p>
-        <h2>生成记录</h2>
-      </div>
-      <div class="history-toolbar">
+      <section class="surface-card history-toolbar">
         <select bind:value={statusFilter} on:change={(event) => changeFilter((event.currentTarget as HTMLSelectElement).value)}>
           <option value="">全部状态</option>
           <option value="queued">已排队</option>
@@ -994,254 +904,249 @@
           <option value="expired">已过期</option>
         </select>
         <div class="pagination">
-          <button class="secondary-button" disabled={history.page <= 1} on:click={() => changePage(history.page - 1)}>
+          <button class="secondary-button compact" disabled={history.page <= 1} on:click={() => changePage(history.page - 1)}>
             上一页
           </button>
           <span>第 {history.page} / {totalPages()} 页</span>
-          <button class="secondary-button" disabled={history.page >= totalPages()} on:click={() => changePage(history.page + 1)}>
+          <button class="secondary-button compact" disabled={history.page >= totalPages()} on:click={() => changePage(history.page + 1)}>
             下一页
           </button>
         </div>
-      </div>
-    </div>
+      </section>
 
-    {#if history.items.length}
-      <div class="history-grid">
-        {#each history.items as item}
-          <article class="history-card">
-            <button
-              class="history-media"
-              draggable={Boolean(item.videoPath)}
-              on:mouseenter={() => armPreview(item.id)}
-              on:mouseleave={clearPreview}
-              on:focus={() => armPreview(item.id)}
-              on:blur={clearPreview}
-              on:dragstart={(event) => startSummaryVideoExportDrag(event, item)}
-              on:click={() => openDetail(item.id)}
-            >
-              <span class={`status-chip floating status-${item.status}`}>{statusLabel(item.status)}</span>
-              {#if previewId === item.id && item.videoPath}
-                <video autoplay loop muted playsinline preload="metadata" src={assetSrc(item.videoPath) ?? undefined}></video>
-              {:else if item.thumbnailPath}
-                <img alt={item.promptSummary} src={assetSrc(item.thumbnailPath) ?? undefined} />
-              {:else}
-                <div class="media-fallback">暂无缩略图</div>
-              {/if}
-            </button>
-
-            <div class="history-body">
-              <div class="history-meta">
-                <time>{displayDate(item.createdAt)}</time>
-                <span>{item.referenceCount} refs</span>
-              </div>
+      {#if history.items.length}
+        <section class="history-list">
+          {#each history.items as item}
+            <article class="surface-card history-row">
               <button
-                class="history-prompt"
-                draggable="true"
-                on:click={() => usePrompt(item.prompt)}
-                on:dragstart={(event) => startPromptDrag(event, item.prompt)}
+                class="history-thumb"
+                draggable={Boolean(item.videoPath)}
+                on:mouseenter={() => armPreview(item.id)}
+                on:mouseleave={clearPreview}
+                on:focus={() => armPreview(item.id)}
+                on:blur={clearPreview}
+                on:dragstart={(event) => startSummaryVideoExportDrag(event, item)}
+                on:click={() => openDetail(item.id)}
               >
-                {item.promptSummary}
+                <span class={`status-chip floating status-${item.status}`}>{statusLabel(item.status)}</span>
+                {#if previewId === item.id && item.videoPath}
+                  <video autoplay loop muted playsinline preload="metadata" src={assetSrc(item.videoPath) ?? undefined}></video>
+                {:else if item.thumbnailPath}
+                  <img alt={item.promptSummary} src={assetSrc(item.thumbnailPath) ?? undefined} />
+                {:else}
+                  <div class="media-fallback">暂无缩略图</div>
+                {/if}
               </button>
-              <p class="history-progress">{item.progressText ?? item.errorMessage ?? "可直接复用"}</p>
-            </div>
 
-            <div class="history-actions">
-              <button class="primary-button subtle" on:click={() => reuseGenerationById(item.id)}>整条复用</button>
-              <button class="secondary-button" on:click={() => usePrompt(item.prompt)}>复用提示词</button>
-              <button class="secondary-button" on:click={() => openDetail(item.id)}>查看详情</button>
-              {#if item.videoPath}
-                <button class="secondary-button" on:click={() => openSummaryVideo(item)}>显示文件</button>
+              <div class="history-copy">
+                <div class="history-meta">
+                  <time>{displayDate(item.createdAt)}</time>
+                  <span>{item.referenceCount} refs</span>
+                </div>
                 <button
-                  class="secondary-button"
+                  class="history-prompt"
                   draggable="true"
-                  on:dragstart={(event) => startSummaryVideoExportDrag(event, item)}
+                  on:click={() => usePrompt(item.prompt)}
+                  on:dragstart={(event) => startPromptDrag(event, item.prompt)}
                 >
-                  拖出文件
+                  {item.promptSummary}
                 </button>
-              {/if}
-            </div>
-          </article>
-        {/each}
-      </div>
-    {:else}
-      <div class="empty-state">当前筛选条件下还没有历史记录。</div>
-    {/if}
-  </section>
+                <p class="history-progress">{item.progressText ?? item.errorMessage ?? "可直接复用"}</p>
+              </div>
 
-  <section class="panel settings-panel settings-bottom">
-    <div class="panel-header">
-      <div>
-        <p class="panel-kicker">密钥管理</p>
-        <h2>凭证与计费</h2>
-      </div>
-      <button class="secondary-button" disabled={isSavingSettings} on:click={saveSettingsAction}>
-        {#if isSavingSettings}正在保存...{:else}立即保存{/if}
-      </button>
-    </div>
+              <div class="history-actions compact-stack">
+                <button class="primary-button subtle" on:click={() => reuseGenerationById(item.id)}>整条复用</button>
+                <button class="secondary-button compact" on:click={() => openDetail(item.id)}>详情</button>
+                {#if item.videoPath}
+                  <button class="secondary-button compact" on:click={() => openSummaryVideo(item)}>显示文件</button>
+                {/if}
+              </div>
+            </article>
+          {/each}
+        </section>
+      {:else}
+        <section class="surface-card empty-state">当前筛选条件下还没有历史记录。</section>
+      {/if}
+    </main>
 
-    <div class="settings-grid">
-      <div class="settings-column">
-        <label class="field">
+    <aside class="sidebar sidebar-credentials">
+      <section class="sidebar-card">
+        <div class="sidebar-header">
+          <div>
+            <p class="panel-kicker minor">凭证</p>
+            <h2>连接设置</h2>
+          </div>
+          <button class="secondary-button compact" disabled={isSavingSettings} on:click={saveSettingsAction}>
+            {#if isSavingSettings}保存中{:else}保存{/if}
+          </button>
+        </div>
+
+        <div class="field">
           <span>Seedance API 密钥</span>
           <input bind:value={settings.apiKey} placeholder="输入 ARK API 密钥" type="password" />
+        </div>
+
+        <div class="field">
+          <span>平台</span>
+          <select bind:value={settings.platform}>
+            <option value="volc">火山引擎</option>
+            <option value="byteplus">BytePlus</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <span>轮询间隔</span>
+          <input bind:value={settings.pollInterval} min="1" step="0.5" type="number" />
+        </div>
+
+        <div class="field">
+          <span>模型覆盖</span>
+          <input bind:value={settings.model} placeholder="可选" type="text" />
+        </div>
+
+        <div class="field">
+          <span>Base URL 覆盖</span>
+          <input bind:value={settings.baseUrl} placeholder="可选" type="text" />
+        </div>
+
+        <p class="settings-note">这里的配置会自动持久化，你也可以随时手动保存一遍。</p>
+      </section>
+
+      <section class="sidebar-card">
+        <div class="sidebar-header">
+          <div>
+            <p class="panel-kicker minor">密钥包</p>
+            <h2>导出 / 导入</h2>
+          </div>
+        </div>
+
+        <div class="field">
+          <span>密钥包密码</span>
+          <input bind:value={secretBundlePassword} placeholder="至少 8 个字符" type="password" />
+        </div>
+
+        <div class="secret-actions">
+          <button class="secondary-button compact" disabled={isExportingSecretBundle} on:click={exportSecretBundleAction}>
+            {#if isExportingSecretBundle}导出中{:else}导出{/if}
+          </button>
+          <button class="secondary-button compact" disabled={!secretBundleExport} on:click={copySecretBundleAction}>
+            复制
+          </button>
+        </div>
+
+        <label class="field">
+          <span>导出结果</span>
+          <textarea class="secret-box" bind:value={secretBundleExport} placeholder="这里会显示加密后的 base64 密钥包。"></textarea>
         </label>
 
-        <div class="controls-grid two-column">
-          <label class="field">
-            <span>平台</span>
-            <select bind:value={settings.platform}>
-              <option value="volc">火山引擎</option>
-              <option value="byteplus">BytePlus</option>
+        <label class="field">
+          <span>导入内容</span>
+          <textarea class="secret-box" bind:value={secretBundleImport} placeholder="把之前导出的加密 base64 密钥包粘贴到这里。"></textarea>
+        </label>
+
+        <button class="secondary-button" disabled={isImportingSecretBundle} on:click={importSecretBundleAction}>
+          {#if isImportingSecretBundle}导入中{:else}导入到本地密钥存储{/if}
+        </button>
+
+        <p class="settings-note">导出的字符串先加密，再编码为 base64，方便在不同机器之间安全迁移。</p>
+      </section>
+    </aside>
+  </div>
+
+  <section class="composer-dock">
+    <div class="composer-card">
+      <div class="composer-top">
+        <textarea
+          class="chat-input"
+          placeholder="像聊天一样输入视频提示词..."
+          value={form.prompt}
+          on:input={(event) => updatePromptDraft((event.currentTarget as HTMLTextAreaElement).value)}
+          on:dragover={allowDrop}
+          on:drop={handlePromptDrop}
+        ></textarea>
+        <button class="primary-button composer-send" disabled={isSubmitting || isBootstrapping} on:click={submitGeneration}>
+          {#if isSubmitting}发送中{:else}发送生成{/if}
+        </button>
+      </div>
+
+      <div class="composer-bottom">
+        <div class="frame-pair">
+          <div class="frame-mini" role="group" aria-label="首帧投放区" on:dragover={allowDrop} on:drop={(event) => handleAssetDrop(event, "first")}>
+            <div class="mini-head">
+              <span>首帧</span>
+              {#if firstFrame}
+                <button class="mini-link" on:click={() => { revokePreview(firstFrame); firstFrame = null; }}>清空</button>
+              {/if}
+            </div>
+            <label class="mini-drop">
+              {#if firstFrame?.previewUrl}
+                <img src={firstFrame.previewUrl} alt="首帧预览" />
+              {:else}
+                <span>上传</span>
+              {/if}
+              <input accept="image/*" type="file" on:change={(event) => handleSingleFileChange(event, "first")} />
+            </label>
+          </div>
+
+          <div class="frame-mini" role="group" aria-label="输入尾帧投放区" on:dragover={allowDrop} on:drop={(event) => handleAssetDrop(event, "last")}>
+            <div class="mini-head">
+              <span>尾帧</span>
+              {#if inputLastFrame}
+                <button class="mini-link" on:click={() => { revokePreview(inputLastFrame); inputLastFrame = null; }}>清空</button>
+              {/if}
+            </div>
+            <label class="mini-drop">
+              {#if inputLastFrame?.previewUrl}
+                <img src={inputLastFrame.previewUrl} alt="输入尾帧预览" />
+              {:else}
+                <span>上传</span>
+              {/if}
+              <input accept="image/*" type="file" on:change={(event) => handleSingleFileChange(event, "last")} />
+            </label>
+          </div>
+        </div>
+
+        <div class="composer-controls">
+          <label class="compact-field">
+            <span>画幅</span>
+            <select bind:value={form.ratio}>
+              {#each ratioOptions as option}
+                <option value={option}>{option}</option>
+              {/each}
             </select>
           </label>
 
-          <label class="field">
-            <span>轮询间隔</span>
-            <input bind:value={settings.pollInterval} min="1" step="0.5" type="number" />
-          </label>
-        </div>
-
-        <label class="field">
-          <span>模型覆盖</span>
-          <input bind:value={settings.model} placeholder="可选" type="text" />
-        </label>
-
-        <label class="field">
-          <span>Base URL 覆盖</span>
-          <input bind:value={settings.baseUrl} placeholder="可选" type="text" />
-        </label>
-
-        <div class="settings-note">
-          所有密钥只保存在当前机器的应用本地数据库中。这里的配置会自动持久化；余额会在手动刷新、应用启动时，以及每个任务进入终态五秒后自动刷新。
-        </div>
-      </div>
-
-      <div class="settings-column">
-        <div class="subpanel">
-          <div class="subpanel-head">
-            <div>
-              <p class="panel-kicker minor">计费</p>
-              <h3>余额查询凭证</h3>
-            </div>
-            <button class="secondary-button" disabled={isRefreshingBalance} on:click={() => refreshBalanceAction()}>
-              {#if isRefreshingBalance}正在刷新...{:else}刷新余额{/if}
-            </button>
-          </div>
-
-          <label class="field">
-            <span>Billing AccessKey</span>
-            <input bind:value={settings.billingAccessKey} placeholder="输入火山计费 AccessKey" type="password" />
+          <label class="compact-field">
+            <span>分辨率</span>
+            <select bind:value={form.resolution}>
+              {#each resolutionOptions as option}
+                <option value={option}>{option}</option>
+              {/each}
+            </select>
           </label>
 
-          <label class="field">
-            <span>Billing SecretKey</span>
-            <input bind:value={settings.billingSecretKey} placeholder="输入火山计费 SecretKey" type="password" />
+          <label class="compact-field">
+            <span>时长</span>
+            <select bind:value={form.duration}>
+              {#each durationOptions as seconds}
+                <option value={seconds}>{seconds}s</option>
+              {/each}
+            </select>
           </label>
 
-          <label class="field">
-            <span>Billing Security Token</span>
-            <input
-              bind:value={settings.billingSecurityToken}
-              placeholder="可选：使用 API Explorer / 临时凭证时填写"
-              type="password"
-            />
+          <label class="mini-check">
+            <input bind:checked={form.generateAudio} type="checkbox" />
+            <span>生成音频</span>
           </label>
 
-          <label class="field">
-            <span>低余额告警阈值</span>
-            <input bind:value={settings.lowBalanceThreshold} min="0" step="1" type="number" />
-          </label>
+          <div class="mini-lock">水印：默认关闭</div>
 
-        <div class={`balance-banner ${hasArrears() ? "danger" : isLowBalance() ? "warn" : "ok"}`}>
-          <strong>{balanceStatusText()}</strong>
-          <span>
-            {#if balance.updatedAt}
-              更新时间：{displayDate(balance.updatedAt)}
+          <div class="mini-info">
+            {#if referenceImages.length}
+              <span>参考图 {referenceImages.length} 张已载入</span>
             {:else}
-              等待首次成功同步余额
+              <span>当前未载入参考图</span>
             {/if}
-          </span>
-        </div>
-
-        <div class="settings-note">
-          如果你是从 API Explorer 复制的临时凭证，除了 AccessKey / SecretKey 之外，还需要把
-          `X-Security-Token` 一起填到上面的 Security Token 字段里。
-        </div>
-
-        <div class="balance-grid">
-            <div class="balance-card featured">
-              <span class="meta-label">可用余额</span>
-              <strong>{formatAmount(balance.availableBalance)}</strong>
-            </div>
-            <div class="balance-card">
-              <span class="meta-label">现金余额</span>
-              <strong>{formatAmount(balance.cashBalance)}</strong>
-            </div>
-            <div class="balance-card">
-              <span class="meta-label">欠费金额</span>
-              <strong>{formatAmount(balance.arrearsBalance)}</strong>
-            </div>
-            <div class="balance-card">
-              <span class="meta-label">信用额度</span>
-              <strong>{formatAmount(balance.creditLimit)}</strong>
-            </div>
-            <div class="balance-card">
-              <span class="meta-label">冻结金额</span>
-              <strong>{formatAmount(balance.freezeAmount)}</strong>
-            </div>
-            <div class="balance-card">
-              <span class="meta-label">账户 ID</span>
-              <strong>{balance.accountId ?? "--"}</strong>
-            </div>
-          </div>
-        </div>
-
-        <div class="subpanel">
-          <div class="subpanel-head">
-            <div>
-              <p class="panel-kicker minor">密钥包</p>
-              <h3>导出与导入加密密钥</h3>
-            </div>
-          </div>
-
-          <label class="field">
-            <span>密钥包密码</span>
-            <input bind:value={secretBundlePassword} placeholder="至少 8 个字符" type="password" />
-          </label>
-
-          <div class="secret-actions">
-            <button class="secondary-button" disabled={isExportingSecretBundle} on:click={exportSecretBundleAction}>
-              {#if isExportingSecretBundle}正在导出...{:else}导出加密密钥包{/if}
-            </button>
-            <button class="secondary-button" disabled={!secretBundleExport} on:click={copySecretBundleAction}>
-              复制导出结果
-            </button>
-          </div>
-
-          <label class="field">
-            <span>导出结果</span>
-            <textarea
-              class="secret-box"
-              bind:value={secretBundleExport}
-              placeholder="这里会显示加密后的 base64 密钥包。"
-            ></textarea>
-          </label>
-
-          <label class="field">
-            <span>导入内容</span>
-            <textarea
-              class="secret-box"
-              bind:value={secretBundleImport}
-              placeholder="把之前导出的加密 base64 密钥包粘贴到这里。"
-            ></textarea>
-          </label>
-
-          <button class="secondary-button" disabled={isImportingSecretBundle} on:click={importSecretBundleAction}>
-            {#if isImportingSecretBundle}正在导入...{:else}导入到本地密钥存储{/if}
-          </button>
-
-          <div class="settings-note">
-            导出的字符串会先加密，再编码为 base64 方便传输。真正提供保护的是加密本身，不是 base64。
           </div>
         </div>
       </div>
@@ -1409,483 +1314,256 @@
 
 <style>
   .studio-shell {
-    display: grid;
-    gap: 1.25rem;
-    padding: 1.4rem;
+    padding: 1rem;
   }
 
-  .hero,
-  .panel,
-  .drawer-panel {
-    border: 1px solid var(--line);
-    background: var(--bg-card);
-    box-shadow: var(--shadow);
-    backdrop-filter: blur(18px);
-  }
-
-  .hero {
+  .workspace-shell {
     display: grid;
-    grid-template-columns: minmax(0, 2.2fr) minmax(320px, 0.9fr);
+    grid-template-columns: 280px minmax(0, 1fr) 300px;
     gap: 1rem;
-    border-radius: 28px;
-    padding: 1.5rem;
+    align-items: start;
+    min-height: calc(100vh - 2rem);
+  }
+
+  .sidebar {
+    position: sticky;
+    top: 1rem;
+    display: grid;
+    gap: 1rem;
+    max-height: calc(100vh - 2rem);
+    overflow: auto;
+  }
+
+  .history-surface {
+    display: grid;
+    gap: 1rem;
+    padding-bottom: 16rem;
+  }
+
+  .surface-card,
+  .sidebar-card,
+  .composer-card,
+  .drawer-panel {
+    background: #ffffff;
+    border: 1px solid #d9e2ec;
+    border-radius: 24px;
+    box-shadow: 0 18px 44px rgba(15, 23, 42, 0.08);
+  }
+
+  .surface-card,
+  .sidebar-card,
+  .drawer-panel {
+    padding: 1rem;
   }
 
   .eyebrow,
   .panel-kicker {
-    margin: 0 0 0.45rem;
-    color: var(--accent);
-    font-size: 0.8rem;
+    margin: 0 0 0.25rem;
+    color: #0c8f68;
+    font-size: 0.74rem;
     font-weight: 700;
-    letter-spacing: 0.16em;
+    letter-spacing: 0.14em;
     text-transform: uppercase;
+  }
+
+  .panel-kicker.minor {
+    font-size: 0.68rem;
   }
 
   h1,
   h2 {
     margin: 0;
+    color: #172b4d;
     font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
-    font-weight: 600;
-    line-height: 1.05;
   }
 
   h1 {
-    max-width: 13ch;
-    font-size: clamp(2rem, 3.5vw, 3.55rem);
+    font-size: clamp(2rem, 2.8vw, 3rem);
+    line-height: 1.02;
   }
 
   h2 {
-    font-size: 1.45rem;
+    font-size: 1.18rem;
+    line-height: 1.08;
   }
 
-  h3 {
-    margin: 0;
-    font-size: 1rem;
-    font-weight: 600;
+  .surface-subtitle,
+  .settings-note,
+  .history-progress,
+  .meta-value,
+  .meta-label,
+  .field span,
+  .prompt-label,
+  .media-stack > span,
+  .mini-head,
+  .compact-field span {
+    color: #66758c;
   }
 
-  .hero-copy {
-    max-width: 72ch;
-    margin: 1rem 0 0;
-    color: var(--text-dim);
-    line-height: 1.6;
-  }
-
-  .meta-panel {
+  .surface-header {
     display: grid;
-    gap: 0.85rem;
-    align-content: start;
+    gap: 1rem;
   }
 
-  .meta-panel > div {
+  .surface-meta {
     display: grid;
-    gap: 0.25rem;
-    padding: 0.95rem 1rem;
-    border-radius: 20px;
-    background: var(--bg-card-strong);
-    border: 1px solid var(--line);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.75rem;
   }
 
-  .meta-panel > div.success {
-    border-color: rgba(109, 226, 187, 0.5);
-  }
-
-  .meta-panel > div.error {
-    border-color: rgba(255, 142, 111, 0.5);
-    color: #ffd4c8;
-  }
-
-  .meta-label {
-    color: var(--text-dim);
-    font-size: 0.74rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-  }
-
-  .meta-value {
-    word-break: break-word;
-  }
-
-  .top-grid {
+  .meta-box {
     display: grid;
-    grid-template-columns: 1fr;
-    gap: 1.25rem;
+    gap: 0.2rem;
+    padding: 0.85rem 0.95rem;
+    border-radius: 18px;
+    background: #f7f9fc;
+    border: 1px solid #e3eaf2;
   }
 
-  .panel {
-    border-radius: 24px;
-    padding: 1.25rem;
+  .meta-box.status-box.success {
+    border-color: #bfe8d9;
+    color: #0c7f5d;
   }
 
-  .panel-header {
+  .meta-box.status-box.error {
+    border-color: #f6c2bf;
+    color: #b42318;
+  }
+
+  .sidebar-header,
+  .panel-header,
+  .history-toolbar,
+  .pagination,
+  .history-meta,
+  .drawer-tools,
+  .secret-actions {
     display: flex;
     justify-content: space-between;
-    gap: 1rem;
-    align-items: start;
-    margin-bottom: 1rem;
-  }
-
-  .panel-kicker.minor {
-    margin-bottom: 0.2rem;
-    font-size: 0.72rem;
-    letter-spacing: 0.12em;
-  }
-
-  .panel-header.compact {
     align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
   }
 
   .field {
     display: grid;
-    gap: 0.45rem;
+    gap: 0.35rem;
   }
 
-  .field span {
-    color: var(--text-dim);
-    font-size: 0.84rem;
-  }
-
-  .prompt-field,
   input,
   select,
+  textarea,
   pre {
     width: 100%;
-    border: 1px solid var(--line);
-    border-radius: 18px;
-    background: rgba(7, 22, 18, 0.9);
-    color: var(--text);
+    border-radius: 16px;
+    border: 1px solid #d9e2ec;
+    background: #ffffff;
+    color: #172b4d;
+    padding: 0.78rem 0.9rem;
+    box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.03);
   }
 
-  .prompt-field,
-  input,
-  select {
-    padding: 0.85rem 0.95rem;
+  textarea,
+  pre {
+    line-height: 1.5;
   }
 
-  .prompt-field {
-    min-height: 220px;
-    resize: vertical;
-    line-height: 1.6;
-  }
-
-  .asset-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 1rem;
-    margin-top: 1rem;
-  }
-
-  .drop-field.wide {
-    grid-column: 1 / -1;
-  }
-
-  .field-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 0.75rem;
-  }
-
-  .asset-box {
-    position: relative;
-    display: grid;
-    place-items: center;
-    min-height: 220px;
-    border-radius: 20px;
-    border: 1px dashed var(--line-strong);
-    background: linear-gradient(180deg, rgba(10, 30, 25, 0.85), rgba(9, 20, 18, 0.98));
-    overflow: hidden;
-    text-align: center;
-    color: var(--text-dim);
-  }
-
-  .asset-box img,
-  .reference-card img,
-  .media-stack img,
-  .asset-button img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    display: block;
-  }
-
-  .asset-box input,
-  .upload-chip input {
-    position: absolute;
-    inset: 0;
-    opacity: 0;
+  button {
+    border: 0;
     cursor: pointer;
   }
 
-  .reference-strip {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-    gap: 0.8rem;
-  }
-
-  .reference-card {
-    position: relative;
-    overflow: hidden;
-    min-height: 120px;
-    border-radius: 18px;
-    border: 1px solid var(--line);
-    background: rgba(10, 20, 18, 0.85);
-  }
-
-  .remove-button,
-  .upload-chip,
-  .link-button,
+  .primary-button,
   .secondary-button,
-  .primary-button {
-    border: 0;
+  .mini-link {
     border-radius: 999px;
     padding: 0.7rem 1rem;
-    transition: transform 120ms ease, background 120ms ease;
+    transition: transform 120ms ease, box-shadow 120ms ease;
+  }
+
+  .compact {
+    padding: 0.5rem 0.85rem;
+    font-size: 0.88rem;
   }
 
   .primary-button {
-    background: linear-gradient(135deg, var(--accent), #96f2d0);
-    color: #06221b;
+    background: #0c8f68;
+    color: #ffffff;
     font-weight: 700;
+    box-shadow: 0 10px 24px rgba(12, 143, 104, 0.18);
   }
 
   .primary-button.subtle {
-    background: linear-gradient(135deg, rgba(109, 226, 187, 0.24), rgba(150, 242, 208, 0.18));
-    color: var(--text);
-    border: 1px solid rgba(109, 226, 187, 0.26);
+    background: #e9f8f2;
+    color: #0c7f5d;
+    box-shadow: none;
   }
 
   .secondary-button,
-  .upload-chip,
-  .link-button,
-  .remove-button {
-    background: rgba(110, 226, 188, 0.1);
-    color: var(--text);
+  .mini-link {
+    background: #eef3f8;
+    color: #304560;
   }
 
   .primary-button:hover,
   .secondary-button:hover,
-  .upload-chip:hover,
-  .link-button:hover,
-  .remove-button:hover {
+  .mini-link:hover {
     transform: translateY(-1px);
   }
 
-  .controls-grid {
-    display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 0.9rem;
-    margin-top: 1rem;
-  }
-
-  .controls-grid.two-column {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    margin-top: 0;
-  }
-
-  .toggle-row {
+  .active-strip {
     display: flex;
-    flex-wrap: wrap;
-    gap: 0.9rem 1.2rem;
-    margin-top: 1rem;
-    color: var(--text-dim);
+    gap: 0.75rem;
+    overflow: auto;
   }
 
-  .toggle-row label {
+  .active-pill {
     display: inline-flex;
-    gap: 0.45rem;
     align-items: center;
-  }
-
-  .settings-note,
-  .reference-placeholder,
-  .history-progress,
-  .empty-state {
-    color: var(--text-dim);
-  }
-
-  .subpanel {
-    display: grid;
-    gap: 0.85rem;
-    margin-top: 1rem;
-    padding: 1rem;
-    border-radius: 20px;
-    border: 1px solid var(--line);
-    background: rgba(8, 23, 20, 0.78);
-  }
-
-  .subpanel-head {
-    display: flex;
-    justify-content: space-between;
-    gap: 0.8rem;
-    align-items: start;
-  }
-
-  .balance-banner {
-    display: grid;
-    gap: 0.25rem;
-    padding: 0.85rem 0.95rem;
-    border-radius: 18px;
-    border: 1px solid var(--line);
-  }
-
-  .balance-banner.ok {
-    background: rgba(109, 226, 187, 0.08);
-    border-color: rgba(109, 226, 187, 0.2);
-  }
-
-  .balance-banner.warn {
-    background: rgba(255, 196, 95, 0.08);
-    border-color: rgba(255, 196, 95, 0.28);
-  }
-
-  .balance-banner.danger {
-    background: rgba(255, 142, 111, 0.1);
-    border-color: rgba(255, 142, 111, 0.36);
-  }
-
-  .balance-banner span {
-    color: var(--text-dim);
-    font-size: 0.84rem;
-  }
-
-  .balance-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0.75rem;
-  }
-
-  .balance-card {
-    display: grid;
-    gap: 0.3rem;
-    padding: 0.8rem 0.9rem;
-    border-radius: 18px;
-    border: 1px solid var(--line);
-    background: rgba(10, 22, 20, 0.88);
-  }
-
-  .balance-card.featured {
-    border-color: rgba(109, 226, 187, 0.26);
-    background: linear-gradient(180deg, rgba(16, 46, 40, 0.98), rgba(10, 22, 20, 0.92));
-  }
-
-  .balance-card strong {
-    font-size: 1.1rem;
-  }
-
-  .settings-bottom {
-    display: grid;
-    gap: 1rem;
-  }
-
-  .settings-grid {
-    display: grid;
-    grid-template-columns: minmax(320px, 0.9fr) minmax(0, 1.4fr);
-    gap: 1rem;
-  }
-
-  .settings-column {
-    display: grid;
-    gap: 1rem;
-    align-content: start;
-  }
-
-  .secret-actions {
-    display: flex;
-    gap: 0.75rem;
-    flex-wrap: wrap;
-  }
-
-  .secret-box {
-    min-height: 120px;
-    resize: vertical;
-    padding: 0.85rem 0.95rem;
-    border: 1px solid var(--line);
-    border-radius: 18px;
-    background: rgba(7, 22, 18, 0.9);
-    color: var(--text);
-    line-height: 1.45;
-  }
-
-  .active-list {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    gap: 0.9rem;
-  }
-
-  .active-card {
-    display: grid;
-    gap: 0.85rem;
-    text-align: left;
-    border: 1px solid var(--line);
-    border-radius: 20px;
-    background: rgba(9, 27, 23, 0.85);
-    padding: 1rem;
-  }
-
-  .spinner-cluster {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
+    gap: 0.6rem;
+    padding: 0.65rem 0.85rem;
+    border-radius: 999px;
+    background: #f8fbff;
+    border: 1px solid #dce6f2;
+    color: #172b4d;
+    white-space: nowrap;
   }
 
   .spinner-ring {
-    width: 18px;
-    height: 18px;
+    width: 14px;
+    height: 14px;
     border-radius: 50%;
-    border: 2px solid rgba(109, 226, 187, 0.16);
-    border-top-color: var(--accent);
+    border: 2px solid #d6efe6;
+    border-top-color: #0c8f68;
     animation: spin 0.85s linear infinite;
   }
 
-  .active-copy {
+  .history-list {
     display: grid;
-    gap: 0.35rem;
+    gap: 0.85rem;
   }
 
-  .active-copy span {
-    color: var(--text-dim);
-  }
-
-  .history-toolbar,
-  .pagination,
-  .history-meta,
-  .history-actions,
-  .drawer-tools {
-    display: flex;
-    gap: 0.75rem;
-    align-items: center;
-    flex-wrap: wrap;
-  }
-
-  .history-grid {
+  .history-row {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    grid-template-columns: 160px minmax(0, 1fr) 140px;
     gap: 1rem;
+    align-items: center;
   }
 
-  .history-card {
-    display: grid;
-    gap: 0.9rem;
-    padding: 0.85rem;
-    border-radius: 22px;
-    border: 1px solid var(--line);
-    background: rgba(8, 23, 19, 0.84);
-  }
-
-  .history-media {
+  .history-thumb {
     position: relative;
-    min-height: 210px;
+    min-height: 112px;
     padding: 0;
     overflow: hidden;
-    border: 0;
     border-radius: 18px;
-    background: rgba(10, 20, 18, 0.75);
+    background: #eef3f8;
   }
 
-  .history-media img,
-  .history-media video,
-  .media-stack video {
+  .history-thumb img,
+  .history-thumb video,
+  .mini-drop img,
+  .media-stack img,
+  .media-stack video,
+  .asset-button img {
     width: 100%;
     height: 100%;
     object-fit: cover;
@@ -1894,8 +1572,8 @@
 
   .floating {
     position: absolute;
-    top: 0.8rem;
-    left: 0.8rem;
+    top: 0.6rem;
+    left: 0.6rem;
     z-index: 1;
   }
 
@@ -1903,82 +1581,231 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding: 0.34rem 0.72rem;
+    padding: 0.28rem 0.62rem;
     border-radius: 999px;
     font-size: 0.74rem;
     font-weight: 700;
-    text-transform: capitalize;
-    border: 1px solid transparent;
   }
 
   .status-succeeded {
-    background: rgba(109, 226, 187, 0.14);
-    color: #baf6df;
-    border-color: rgba(109, 226, 187, 0.3);
+    background: #e9f8f2;
+    color: #0f7d5b;
   }
 
   .status-failed,
   .status-cancelled,
   .status-expired {
-    background: rgba(255, 142, 111, 0.14);
-    color: #ffd0c3;
-    border-color: rgba(255, 142, 111, 0.32);
+    background: #fdecec;
+    color: #b42318;
   }
 
   .status-running,
   .status-queued {
-    background: rgba(111, 171, 255, 0.14);
-    color: #dbe7ff;
-    border-color: rgba(111, 171, 255, 0.3);
+    background: #eef6ff;
+    color: #2456a5;
   }
 
-  .history-body {
+  .history-copy {
     display: grid;
-    gap: 0.55rem;
-  }
-
-  .history-meta,
-  .history-progress {
-    color: var(--text-dim);
-    font-size: 0.86rem;
+    gap: 0.4rem;
+    min-width: 0;
   }
 
   .history-prompt {
-    margin: 0;
     padding: 0;
-    border: 0;
     background: transparent;
-    color: var(--text);
+    color: #172b4d;
     text-align: left;
     line-height: 1.45;
   }
 
-  .count-pill {
-    display: inline-flex;
-    min-width: 2.2rem;
-    justify-content: center;
-    padding: 0.35rem 0.75rem;
-    border-radius: 999px;
-    background: rgba(109, 226, 187, 0.14);
-    color: var(--accent);
+  .compact-stack {
+    display: grid;
+    gap: 0.45rem;
   }
 
-  .empty-state {
+  .balance-banner {
+    display: grid;
+    gap: 0.25rem;
+    padding: 0.9rem 1rem;
+    border-radius: 18px;
+    border: 1px solid #dce6f2;
+    background: #f8fbff;
+  }
+
+  .balance-banner.ok {
+    border-color: #bce5d6;
+    background: #f1fbf7;
+  }
+
+  .balance-banner.warn {
+    border-color: #f7d89f;
+    background: #fff9eb;
+  }
+
+  .balance-banner.danger {
+    border-color: #f3c0ba;
+    background: #fff2f1;
+  }
+
+  .balance-banner span {
+    font-size: 0.84rem;
+    color: #66758c;
+  }
+
+  .balance-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.65rem;
+  }
+
+  .balance-card {
+    display: grid;
+    gap: 0.2rem;
+    padding: 0.8rem 0.9rem;
+    border-radius: 18px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+  }
+
+  .balance-card.featured {
+    background: #eefaf5;
+    border-color: #c7eadc;
+  }
+
+  .balance-card strong {
+    font-size: 1.08rem;
+    color: #172b4d;
+  }
+
+  .secret-box {
+    min-height: 100px;
+    resize: vertical;
+  }
+
+  .composer-dock {
+    position: fixed;
+    left: clamp(1rem, 16vw, 18rem);
+    right: clamp(1rem, 18vw, 19rem);
+    bottom: 1rem;
+    z-index: 30;
+  }
+
+  .composer-card {
+    padding: 1rem;
+    background: rgba(255, 255, 255, 0.96);
+    backdrop-filter: blur(14px);
+    border: 1px solid #d8e0ea;
+    box-shadow: 0 24px 64px rgba(23, 43, 77, 0.14);
+  }
+
+  .composer-top {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.85rem;
+    align-items: end;
+  }
+
+  .chat-input {
+    min-height: 92px;
+    resize: none;
+    border-radius: 22px;
+    background: #fbfdff;
+  }
+
+  .composer-send {
+    min-width: 116px;
+    align-self: stretch;
+  }
+
+  .composer-bottom {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 1rem;
+    align-items: start;
+    margin-top: 0.85rem;
+  }
+
+  .frame-pair {
+    display: flex;
+    gap: 0.75rem;
+  }
+
+  .frame-mini {
+    display: grid;
+    gap: 0.35rem;
+    width: 112px;
+  }
+
+  .mini-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.76rem;
+  }
+
+  .mini-link {
+    padding: 0.2rem 0.5rem;
+    font-size: 0.74rem;
+  }
+
+  .mini-drop {
+    position: relative;
     display: grid;
     place-items: center;
-    min-height: 160px;
-    border: 1px dashed var(--line);
-    border-radius: 20px;
+    min-height: 88px;
+    border-radius: 16px;
+    background: #f4f7fb;
+    border: 1px dashed #ccd7e5;
+    overflow: hidden;
+    color: #66758c;
   }
 
-  .empty-state.small {
-    min-height: 90px;
+  .mini-drop input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+
+  .composer-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.65rem;
+    align-items: end;
+  }
+
+  .compact-field {
+    display: grid;
+    gap: 0.25rem;
+    min-width: 108px;
+  }
+
+  .compact-field select {
+    padding: 0.55rem 0.7rem;
+    border-radius: 14px;
+    background: #f8fafc;
+  }
+
+  .mini-check,
+  .mini-lock,
+  .mini-info {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.55rem 0.75rem;
+    border-radius: 14px;
+    background: #f8fafc;
+    border: 1px solid #dce4ef;
+    color: #304560;
+    font-size: 0.84rem;
   }
 
   .drawer {
     position: fixed;
     inset: 0;
-    z-index: 20;
+    z-index: 40;
     display: flex;
     justify-content: flex-end;
   }
@@ -1986,23 +1813,20 @@
   .drawer-backdrop {
     position: absolute;
     inset: 0;
-    border: 0;
-    background: rgba(4, 10, 9, 0.58);
+    background: rgba(15, 23, 42, 0.24);
   }
 
   .drawer-panel {
     position: relative;
-    width: min(920px, calc(100vw - 3rem));
+    width: min(920px, calc(100vw - 2rem));
     height: 100%;
     overflow: auto;
-    border-left: 1px solid var(--line);
-    background: rgba(7, 20, 17, 0.96);
-    padding: 1.25rem;
+    background: #ffffff;
   }
 
   .drawer-section {
     display: grid;
-    gap: 0.9rem;
+    gap: 0.85rem;
     margin-top: 1rem;
   }
 
@@ -2011,18 +1835,13 @@
     margin: 0;
     padding: 1rem;
     border-radius: 18px;
-    background: rgba(10, 22, 20, 0.92);
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
     overflow: auto;
-    line-height: 1.55;
   }
 
   .prompt-card {
     cursor: grab;
-  }
-
-  .prompt-label {
-    color: var(--text-dim);
-    font-size: 0.82rem;
   }
 
   .prompt-card p {
@@ -2041,16 +1860,11 @@
 
   .media-stack {
     display: grid;
-    gap: 0.5rem;
+    gap: 0.45rem;
   }
 
   .media-stack.large {
     grid-row: span 2;
-  }
-
-  .media-stack > span {
-    color: var(--text-dim);
-    font-size: 0.82rem;
   }
 
   .media-stack video,
@@ -2059,20 +1873,19 @@
   .media-fallback {
     min-height: 150px;
     border-radius: 18px;
-    border: 1px solid var(--line);
-    background: rgba(10, 18, 17, 0.94);
+    border: 1px solid #e2e8f0;
+    background: #f8fafc;
   }
 
   .asset-button {
     padding: 0;
     overflow: hidden;
-    cursor: pointer;
   }
 
   .media-fallback {
     display: grid;
     place-items: center;
-    color: var(--text-dim);
+    color: #66758c;
   }
 
   .info-grid {
@@ -2085,9 +1898,16 @@
     display: grid;
     gap: 0.25rem;
     padding: 0.85rem 0.9rem;
-    border-radius: 18px;
-    background: rgba(10, 20, 18, 0.8);
-    border: 1px solid var(--line);
+    border-radius: 16px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+  }
+
+  .empty-state {
+    display: grid;
+    place-items: center;
+    min-height: 180px;
+    color: #66758c;
   }
 
   @keyframes spin {
@@ -2096,42 +1916,73 @@
     }
   }
 
+  @media (max-width: 1380px) {
+    .workspace-shell {
+      grid-template-columns: 260px minmax(0, 1fr) 280px;
+    }
+
+    .composer-dock {
+      left: 15rem;
+      right: 16rem;
+    }
+  }
+
   @media (max-width: 1180px) {
-    .hero,
-    .top-grid,
-    .settings-grid {
+    .workspace-shell {
       grid-template-columns: 1fr;
     }
 
-    .controls-grid {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+    .sidebar {
+      position: static;
+      max-height: none;
+      overflow: visible;
     }
 
+    .composer-dock {
+      left: 1rem;
+      right: 1rem;
+    }
+
+    .surface-meta,
+    .history-row,
     .drawer-grid,
     .info-grid {
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: 1fr;
+    }
+
+    .composer-bottom {
+      grid-template-columns: 1fr;
     }
   }
 
   @media (max-width: 760px) {
     .studio-shell {
-      padding: 0.9rem;
+      padding: 0.75rem;
     }
 
-    .asset-grid,
-    .controls-grid,
-    .drawer-grid,
-    .info-grid {
+    .history-surface {
+      padding-bottom: 18rem;
+    }
+
+    .frame-pair {
+      width: 100%;
+      justify-content: space-between;
+    }
+
+    .frame-mini {
+      width: calc(50% - 0.4rem);
+    }
+
+    .composer-top {
       grid-template-columns: 1fr;
+    }
+
+    .composer-send {
+      width: 100%;
     }
 
     .drawer-panel {
       width: 100vw;
-    }
-
-    .history-toolbar {
-      width: 100%;
-      justify-content: space-between;
     }
   }
 </style>
