@@ -784,6 +784,7 @@
 
 <div class="studio-shell">
   <div class="workspace-shell">
+    <!-- 左侧边栏：计费和余额。 -->
     <aside class="sidebar sidebar-billing">
       <section class="sidebar-card">
         <div class="sidebar-header">
@@ -836,6 +837,7 @@
       </section>
     </aside>
 
+    <!-- 中间主区域：直接显示历史任务。 -->
     <main class="history-surface">
       {#if activeTasks.length}
         <section class="surface-card active-strip">
@@ -929,6 +931,7 @@
       {/if}
     </main>
 
+    <!-- 右侧边栏：项目连接凭证和密钥包导入导出。 -->
     <aside class="sidebar sidebar-credentials">
       <section class="sidebar-card">
         <div class="sidebar-header">
@@ -1010,8 +1013,10 @@
     </aside>
   </div>
 
+  <!-- 底部悬浮输入区：像聊天框一样发起新任务。 -->
   <section class="composer-dock">
     <div class="composer-card">
+      <!-- 第一行：大提示词输入框 + 发送按钮。 -->
       <div class="composer-top">
         <textarea
           class="chat-input"
@@ -1026,8 +1031,10 @@
         </button>
       </div>
 
+      <!-- 第二行：首尾帧小框 + 紧凑参数。 -->
       <div class="composer-bottom">
         <div class="frame-pair">
+          <!-- 首帧小框。想改高度，看 style 里的 --composer-frame-height。 -->
           <div class="frame-mini" role="group" aria-label="首帧投放区" on:dragover={allowDrop} on:drop={(event) => handleAssetDrop(event, "first")}>
             <div class="mini-head">
               <span>首帧</span>
@@ -1045,6 +1052,7 @@
             </label>
           </div>
 
+          <!-- 尾帧小框。和首帧共用同一个高度变量。 -->
           <div class="frame-mini" role="group" aria-label="输入尾帧投放区" on:dragover={allowDrop} on:drop={(event) => handleAssetDrop(event, "last")}>
             <div class="mini-head">
               <span>尾帧</span>
@@ -1063,6 +1071,7 @@
           </div>
         </div>
 
+        <!-- 这里是底部的小参数区。 -->
         <div class="composer-controls">
           <label class="compact-field">
             <span>画幅</span>
@@ -1260,13 +1269,27 @@
 </div>
 
 <style>
+  /* ===== 新手最常改的尺寸都集中在这里 =====
+     1. 想调左侧栏宽度：改 --sidebar-left-width
+     2. 想调右侧栏宽度：改 --sidebar-right-width
+     3. 想调历史缩略图大小：改 --history-thumb-width / --history-thumb-height
+     4. 想调底部首尾帧小框大小：改 --composer-frame-width / --composer-frame-height
+     5. 想调底部聊天框高度：改 --chat-input-height
+  */
   .studio-shell {
+    --sidebar-left-width: 220px;
+    --sidebar-right-width: 240px;
+    --history-thumb-width: 132px;
+    --history-thumb-height: 92px;
+    --composer-frame-width: 92px;
+    --composer-frame-height: 72px;
+    --chat-input-height: 78px;
     padding: 1rem;
   }
 
   .workspace-shell {
     display: grid;
-    grid-template-columns: 220px minmax(0, 1fr) 240px;
+    grid-template-columns: var(--sidebar-left-width) minmax(0, 1fr) var(--sidebar-right-width);
     gap: 1rem;
     align-items: start;
     min-height: calc(100vh - 2rem);
@@ -1487,14 +1510,14 @@
 
   .history-row {
     display: grid;
-    grid-template-columns: 132px minmax(0, 1fr) 118px;
+    grid-template-columns: var(--history-thumb-width) minmax(0, 1fr) 118px;
     gap: 0.75rem;
     align-items: center;
   }
 
   .history-thumb {
     position: relative;
-    min-height: 92px;
+    min-height: var(--history-thumb-height);
     padding: 0;
     overflow: hidden;
     border-radius: 16px;
@@ -1657,7 +1680,7 @@
   }
 
   .chat-input {
-    min-height: 78px;
+    min-height: var(--chat-input-height);
     resize: none;
     border-radius: 18px;
     background: rgba(255, 255, 255, 0.78);
@@ -1684,7 +1707,7 @@
   .frame-mini {
     display: grid;
     gap: 0.25rem;
-    width: 92px;
+    width: var(--composer-frame-width);
   }
 
   .mini-head {
@@ -1704,7 +1727,7 @@
     position: relative;
     display: grid;
     place-items: center;
-    min-height: 72px;
+    min-height: var(--composer-frame-height);
     border-radius: 14px;
     background: rgba(248, 250, 252, 0.85);
     border: 1px dashed #ccd7e5;
