@@ -1033,74 +1033,67 @@
 
       <!-- 第二行：首尾帧小框 + 紧凑参数。 -->
       <div class="composer-bottom">
-        <div class="frame-pair">
-          <!-- 首帧小框。想改高度，看 style 里的 --composer-frame-height。 -->
-          <div class="frame-mini" role="group" aria-label="首帧投放区" on:dragover={allowDrop} on:drop={(event) => handleAssetDrop(event, "first")}>
-            <div class="mini-head">
+        <div class="composer-inline">
+          <div class="frame-inline">
+            <div class="frame-inline-item" role="group" aria-label="首帧投放区" on:dragover={allowDrop} on:drop={(event) => handleAssetDrop(event, "first")}>
               <span>首帧</span>
-              {#if firstFrame}
-                <button class="mini-link" on:click={() => { revokePreview(firstFrame); firstFrame = null; }}>清空</button>
-              {/if}
+              <label class="inline-upload">
+                {#if firstFrame?.previewUrl}
+                  <img src={firstFrame.previewUrl} alt="首帧预览" />
+                {:else}
+                  <span>[上传]</span>
+                {/if}
+                <input accept="image/*" type="file" on:change={(event) => handleSingleFileChange(event, "first")} />
+              </label>
             </div>
-            <label class="mini-drop">
-              {#if firstFrame?.previewUrl}
-                <img src={firstFrame.previewUrl} alt="首帧预览" />
-              {:else}
-                <span>上传</span>
-              {/if}
-              <input accept="image/*" type="file" on:change={(event) => handleSingleFileChange(event, "first")} />
-            </label>
-          </div>
 
-          <!-- 尾帧小框。和首帧共用同一个高度变量。 -->
-          <div class="frame-mini" role="group" aria-label="输入尾帧投放区" on:dragover={allowDrop} on:drop={(event) => handleAssetDrop(event, "last")}>
-            <div class="mini-head">
+            <div class="frame-inline-item" role="group" aria-label="输入尾帧投放区" on:dragover={allowDrop} on:drop={(event) => handleAssetDrop(event, "last")}>
               <span>尾帧</span>
-              {#if inputLastFrame}
-                <button class="mini-link" on:click={() => { revokePreview(inputLastFrame); inputLastFrame = null; }}>清空</button>
-              {/if}
+              <label class="inline-upload">
+                {#if inputLastFrame?.previewUrl}
+                  <img src={inputLastFrame.previewUrl} alt="输入尾帧预览" />
+                {:else}
+                  <span>[上传]</span>
+                {/if}
+                <input accept="image/*" type="file" on:change={(event) => handleSingleFileChange(event, "last")} />
+              </label>
             </div>
-            <label class="mini-drop">
-              {#if inputLastFrame?.previewUrl}
-                <img src={inputLastFrame.previewUrl} alt="输入尾帧预览" />
-              {:else}
-                <span>上传</span>
-              {/if}
-              <input accept="image/*" type="file" on:change={(event) => handleSingleFileChange(event, "last")} />
+          </div>
+
+          <div class="inline-separator" aria-hidden="true"></div>
+
+          <div class="composer-controls inline-controls">
+            <label class="compact-field">
+              <span>画幅</span>
+              <select bind:value={form.ratio}>
+                {#each ratioOptions as option}
+                  <option value={option}>{option}</option>
+                {/each}
+              </select>
+            </label>
+
+            <label class="compact-field">
+              <span>分辨率</span>
+              <select bind:value={form.resolution}>
+                {#each resolutionOptions as option}
+                  <option value={option}>{option}</option>
+                {/each}
+              </select>
+            </label>
+
+            <label class="compact-field">
+              <span>时长</span>
+              <select bind:value={form.duration}>
+                {#each durationOptions as seconds}
+                  <option value={seconds}>{seconds}s</option>
+                {/each}
+              </select>
             </label>
           </div>
-        </div>
 
-        <!-- 这里是底部的小参数区。 -->
-        <div class="composer-controls">
-          <label class="compact-field">
-            <span>画幅</span>
-            <select bind:value={form.ratio}>
-              {#each ratioOptions as option}
-                <option value={option}>{option}</option>
-              {/each}
-            </select>
-          </label>
+          <div class="inline-separator" aria-hidden="true"></div>
 
-          <label class="compact-field">
-            <span>分辨率</span>
-            <select bind:value={form.resolution}>
-              {#each resolutionOptions as option}
-                <option value={option}>{option}</option>
-              {/each}
-            </select>
-          </label>
-
-          <label class="compact-field">
-            <span>时长</span>
-            <select bind:value={form.duration}>
-              {#each durationOptions as seconds}
-                <option value={seconds}>{seconds}s</option>
-              {/each}
-            </select>
-          </label>
-
-          <label class="mini-check">
+          <label class="mini-check audio-check">
             <input bind:checked={form.generateAudio} type="checkbox" />
             <span>生成音频</span>
           </label>
@@ -1282,7 +1275,7 @@
     --history-thumb-width: 132px;
     --history-thumb-height: 92px;
     --composer-frame-width: 92px;
-    --composer-frame-height: 72px;
+    --composer-frame-height: 52px;
     --chat-input-height: 78px;
     padding: 1rem;
   }
@@ -1526,7 +1519,6 @@
 
   .history-thumb img,
   .history-thumb video,
-  .mini-drop img,
   .media-stack img,
   .media-stack video,
   .asset-button img {
@@ -1692,73 +1684,91 @@
   }
 
   .composer-bottom {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
-    gap: 1rem;
-    align-items: start;
+    display: flex;
+    justify-content: center;
     margin-top: 0.85rem;
   }
 
-  .frame-pair {
+  .composer-inline {
     display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
     gap: 0.55rem;
   }
 
-  .frame-mini {
-    display: grid;
-    gap: 0.25rem;
-    width: var(--composer-frame-width);
+  .frame-inline {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
   }
 
-  .mini-head {
-    display: flex;
-    justify-content: space-between;
+  .frame-inline-item {
+    display: inline-flex;
     align-items: center;
     gap: 0.35rem;
-    font-size: 0.68rem;
+    font-size: 0.76rem;
+    color: #52657d;
   }
 
-  .mini-link {
-    padding: 0.2rem 0.5rem;
-    font-size: 0.74rem;
-  }
-
-  .mini-drop {
+  .inline-upload {
     position: relative;
     display: grid;
     place-items: center;
+    width: var(--composer-frame-width);
     min-height: var(--composer-frame-height);
-    border-radius: 14px;
-    background: rgba(248, 250, 252, 0.85);
+    padding: 0.2rem;
+    border-radius: 12px;
+    background: rgba(248, 250, 252, 0.78);
     border: 1px dashed #ccd7e5;
     overflow: hidden;
-    color: #66758c;
+    color: #52657d;
+    font-size: 0.76rem;
   }
 
-  .mini-drop input {
-    position: absolute;
+  .inline-upload img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  .inline-upload input {
+    position: relative;
     inset: 0;
     opacity: 0;
     cursor: pointer;
   }
 
+  .inline-separator {
+    width: 1px;
+    align-self: stretch;
+    min-height: 28px;
+    background: #d9e2ec;
+  }
+
   .composer-controls {
     display: flex;
-    flex-wrap: wrap;
+    align-items: center;
     gap: 0.45rem;
-    align-items: end;
+    justify-content: center;
+    flex-wrap: wrap;
   }
 
   .compact-field {
     display: grid;
     gap: 0.25rem;
-    min-width: 92px;
+    min-width: 84px;
   }
 
   .compact-field select {
     padding: 0.45rem 0.6rem;
     border-radius: 14px;
     background: #f8fafc;
+  }
+
+  .inline-controls {
+    align-items: end;
   }
 
   .mini-check {
@@ -1771,6 +1781,10 @@
     border: 1px solid #dce4ef;
     color: #304560;
     font-size: 0.76rem;
+  }
+
+  .audio-check {
+    white-space: nowrap;
   }
 
   .drawer {
@@ -1921,8 +1935,8 @@
       grid-template-columns: 1fr;
     }
 
-    .composer-bottom {
-      grid-template-columns: 1fr;
+    .inline-separator {
+      display: none;
     }
   }
 
