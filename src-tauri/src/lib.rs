@@ -2,6 +2,7 @@ mod billing;
 mod db;
 mod models;
 mod seedance;
+mod secret_bundle;
 
 use anyhow::{anyhow, bail, Context, Result};
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
@@ -98,6 +99,34 @@ fn save_settings(
 
     let conn = state.db.lock().map_err(lock_error)?;
     let saved = db::save_settings(&conn, &sanitized).map_err(error_to_string)?;
+    drop(conn);
+
+    if !saved.billing_access_key.is_empty() && !saved.billing_secret_key.is_empty() {
+        schedule_balance_refresh(app, state.inner().clone(), Duration::from_secs(0));
+    }
+
+    Ok(saved)
+}
+
+#[tauri::command]
+fn export_secret_bundle(state: State<'_, AppState>, password: String) -> Result<String, String> {
+    let conn = state.db.lock().map_err(lock_error)?;
+    let settings = db::load_settings(&conn).map_err(error_to_string)?;
+    secret_bundle::export_secret_bundle(&settings, &password).map_err(error_to_string)
+}
+
+#[tauri::command]
+fn import_secret_bundle(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    password: String,
+    payload: String,
+) -> Result<AppSettings, String> {
+    let conn = state.db.lock().map_err(lock_error)?;
+    let current = db::load_settings(&conn).map_err(error_to_string)?;
+    let imported =
+        secret_bundle::import_secret_bundle(&current, &password, &payload).map_err(error_to_string)?;
+    let saved = db::save_settings(&conn, &imported).map_err(error_to_string)?;
     drop(conn);
 
     if !saved.billing_access_key.is_empty() && !saved.billing_secret_key.is_empty() {
@@ -802,6 +831,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             bootstrap,
             save_settings,
+            export_secret_bundle,
+            import_secret_bundle,
             refresh_balance,
             list_generations,
             get_generation,

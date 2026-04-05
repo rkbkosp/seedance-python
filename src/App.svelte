@@ -66,9 +66,14 @@
   let isSavingSettings = false;
   let isSubmitting = false;
   let isRefreshingBalance = false;
+  let isExportingSecretBundle = false;
+  let isImportingSecretBundle = false;
   let drawerOpen = false;
   let feedback = "";
   let errorMessage = "";
+  let secretBundlePassword = "";
+  let secretBundleExport = "";
+  let secretBundleImport = "";
 
   const formatDate = new Intl.DateTimeFormat(undefined, {
     year: "numeric",
@@ -648,6 +653,71 @@
       isRefreshingBalance = false;
     }
   }
+
+  async function exportSecretBundleAction(): Promise<void> {
+    if (!secretBundlePassword) {
+      setError("Enter a password before exporting the secret bundle.");
+      return;
+    }
+
+    isExportingSecretBundle = true;
+    try {
+      secretBundleExport = await invoke<string>("export_secret_bundle", {
+        password: secretBundlePassword,
+      });
+      setFeedback("Encrypted secret bundle generated");
+    } catch (error) {
+      setError(String(error));
+    } finally {
+      isExportingSecretBundle = false;
+    }
+  }
+
+  async function importSecretBundleAction(): Promise<void> {
+    if (!secretBundlePassword) {
+      setError("Enter the secret bundle password before importing.");
+      return;
+    }
+    if (!secretBundleImport.trim()) {
+      setError("Paste an exported bundle before importing.");
+      return;
+    }
+
+    isImportingSecretBundle = true;
+    try {
+      settings = await invoke<AppSettings>("import_secret_bundle", {
+        password: secretBundlePassword,
+        payload: secretBundleImport,
+      });
+      settings = {
+        ...settings,
+        model: settings.model ?? "",
+        baseUrl: settings.baseUrl ?? "",
+      };
+      if (settings.billingAccessKey && settings.billingSecretKey) {
+        await refreshBalanceAction(false);
+      }
+      setFeedback("Secret bundle imported into local key storage");
+    } catch (error) {
+      setError(String(error));
+    } finally {
+      isImportingSecretBundle = false;
+    }
+  }
+
+  async function copySecretBundleAction(): Promise<void> {
+    if (!secretBundleExport) {
+      setError("Generate a secret bundle before copying.");
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(secretBundleExport);
+      setFeedback("Encrypted secret bundle copied to clipboard");
+    } catch (error) {
+      setError(String(error));
+    }
+  }
 </script>
 
 <svelte:head>
@@ -942,6 +1012,56 @@
       <div class="settings-note">
         All keys are saved locally inside the app database on this machine. Billing balance is refreshed manually,
         on startup, and again five seconds after each task reaches a terminal state.
+      </div>
+
+      <div class="subpanel">
+        <div class="subpanel-head">
+          <div>
+            <p class="panel-kicker minor">Secret Bundle</p>
+            <h3>Export and import encrypted keys</h3>
+          </div>
+        </div>
+
+        <label class="field">
+          <span>Bundle password</span>
+          <input bind:value={secretBundlePassword} placeholder="At least 8 characters" type="password" />
+        </label>
+
+        <div class="secret-actions">
+          <button class="secondary-button" disabled={isExportingSecretBundle} on:click={exportSecretBundleAction}>
+            {#if isExportingSecretBundle}Exporting...{:else}Export encrypted bundle{/if}
+          </button>
+          <button class="secondary-button" disabled={!secretBundleExport} on:click={copySecretBundleAction}>
+            Copy export
+          </button>
+        </div>
+
+        <label class="field">
+          <span>Export output</span>
+          <textarea
+            class="secret-box"
+            bind:value={secretBundleExport}
+            placeholder="Encrypted base64 bundle will appear here."
+          ></textarea>
+        </label>
+
+        <label class="field">
+          <span>Import input</span>
+          <textarea
+            class="secret-box"
+            bind:value={secretBundleImport}
+            placeholder="Paste a previously exported encrypted base64 bundle here."
+          ></textarea>
+        </label>
+
+        <button class="secondary-button" disabled={isImportingSecretBundle} on:click={importSecretBundleAction}>
+          {#if isImportingSecretBundle}Importing...{:else}Import into local key storage{/if}
+        </button>
+
+        <div class="settings-note">
+          The exported string is encrypted first and then base64-encoded for portability. Base64 itself is not the
+          protection layer.
+        </div>
       </div>
     </aside>
   </section>
@@ -1594,6 +1714,23 @@
 
   .balance-card strong {
     font-size: 1.1rem;
+  }
+
+  .secret-actions {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+  }
+
+  .secret-box {
+    min-height: 120px;
+    resize: vertical;
+    padding: 0.85rem 0.95rem;
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    background: rgba(7, 22, 18, 0.9);
+    color: var(--text);
+    line-height: 1.45;
   }
 
   .active-list {
