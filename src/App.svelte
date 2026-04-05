@@ -68,6 +68,9 @@
   let isRefreshingBalance = false;
   let isExportingSecretBundle = false;
   let isImportingSecretBundle = false;
+  let settingsHydrated = false;
+  let settingsSaveTimer: number | null = null;
+  let lastSavedSettingsFingerprint = "";
   let drawerOpen = false;
   let feedback = "";
   let errorMessage = "";
@@ -116,16 +119,56 @@
     feedback = "";
   }
 
+  function normalizeLoadedSettings(next: AppSettings): AppSettings {
+    return {
+      ...DEFAULT_SETTINGS,
+      ...next,
+      model: next.model ?? "",
+      baseUrl: next.baseUrl ?? "",
+    };
+  }
+
+  function settingsFingerprint(next: AppSettings): string {
+    return JSON.stringify({
+      ...next,
+      model: next.model ?? "",
+      baseUrl: next.baseUrl ?? "",
+    });
+  }
+
+  function clearSettingsSaveTimer(): void {
+    if (settingsSaveTimer) {
+      window.clearTimeout(settingsSaveTimer);
+      settingsSaveTimer = null;
+    }
+  }
+
+  async function persistSettings(showFeedback = true): Promise<boolean> {
+    clearSettingsSaveTimer();
+    isSavingSettings = true;
+    try {
+      const saved = await invoke<AppSettings>("save_settings", { settings });
+      settings = normalizeLoadedSettings(saved);
+      lastSavedSettingsFingerprint = settingsFingerprint(settings);
+      if (showFeedback) {
+        setFeedback("设置已保存");
+      }
+      return true;
+    } catch (error) {
+      setError(String(error));
+      return false;
+    } finally {
+      isSavingSettings = false;
+    }
+  }
+
   async function bootstrap(): Promise<void> {
     isBootstrapping = true;
     try {
       const payload = await invoke<BootstrapPayload>("bootstrap");
-      settings = {
-        ...DEFAULT_SETTINGS,
-        ...payload.settings,
-        model: payload.settings.model ?? "",
-        baseUrl: payload.settings.baseUrl ?? "",
-      };
+      settings = normalizeLoadedSettings(payload.settings);
+      lastSavedSettingsFingerprint = settingsFingerprint(settings);
+      settingsHydrated = true;
       balance = payload.balance;
       activeTasks = payload.activeTasks;
       history = payload.history;
@@ -159,22 +202,9 @@
   }
 
   async function saveSettingsAction(): Promise<void> {
-    isSavingSettings = true;
-    try {
-      settings = await invoke<AppSettings>("save_settings", { settings });
-      settings = {
-        ...settings,
-        model: settings.model ?? "",
-        baseUrl: settings.baseUrl ?? "",
-      };
-      if (settings.billingAccessKey && settings.billingSecretKey) {
-        await refreshBalanceAction(false);
-      }
-      setFeedback("设置已保存");
-    } catch (error) {
-      setError(String(error));
-    } finally {
-      isSavingSettings = false;
+    const saved = await persistSettings(true);
+    if (saved && settings.billingAccessKey && settings.billingSecretKey) {
+      await refreshBalanceAction(false, false);
     }
   }
 
@@ -500,6 +530,7 @@
 
     return () => {
       unlisten();
+      clearSettingsSaveTimer();
       revokePreview(firstFrame);
       revokePreview(inputLastFrame);
       referenceImages.forEach((asset) => revokePreview(asset));
@@ -637,10 +668,15 @@
     return "余额状态正常。";
   }
 
-  async function refreshBalanceAction(showFeedback = true): Promise<void> {
+  async function refreshBalanceAction(showFeedback = true, persistFirst = true): Promise<void> {
     if (!isBillingConfigured()) {
       if (showFeedback) setError("尚未配置 Billing AK/SK。");
       return;
+    }
+
+    if (persistFirst) {
+      const saved = await persistSettings(false);
+      if (!saved) return;
     }
 
     isRefreshingBalance = true;
@@ -689,13 +725,10 @@
         password: secretBundlePassword,
         payload: secretBundleImport,
       });
-      settings = {
-        ...settings,
-        model: settings.model ?? "",
-        baseUrl: settings.baseUrl ?? "",
-      };
+      settings = normalizeLoadedSettings(settings);
+      lastSavedSettingsFingerprint = settingsFingerprint(settings);
       if (settings.billingAccessKey && settings.billingSecretKey) {
-        await refreshBalanceAction(false);
+        await refreshBalanceAction(false, false);
       }
       setFeedback("密钥包已导入到本地密钥存储");
     } catch (error) {
@@ -716,6 +749,16 @@
       setFeedback("已复制加密密钥包到剪贴板");
     } catch (error) {
       setError(String(error));
+    }
+  }
+
+  $: if (settingsHydrated) {
+    const nextFingerprint = settingsFingerprint(settings);
+    if (nextFingerprint !== lastSavedSettingsFingerprint && !isSavingSettings) {
+      clearSettingsSaveTimer();
+      settingsSaveTimer = window.setTimeout(() => {
+        void persistSettings(false);
+      }, 700);
     }
   }
 </script>
@@ -1009,7 +1052,7 @@
       </div>
 
       <div class="settings-note">
-        所有密钥只保存在当前机器的应用本地数据库中。余额会在手动刷新、应用启动时，以及每个任务进入终态五秒后自动刷新。
+        所有密钥只保存在当前机器的应用本地数据库中。这里的配置会自动持久化；余额会在手动刷新、应用启动时，以及每个任务进入终态五秒后自动刷新。
       </div>
 
       <div class="subpanel">
