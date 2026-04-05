@@ -669,14 +669,14 @@
   }
 
   async function refreshBalanceAction(showFeedback = true, persistFirst = true): Promise<void> {
-    if (!isBillingConfigured()) {
-      if (showFeedback) setError("尚未配置 Billing AK/SK。");
-      return;
-    }
-
     if (persistFirst) {
       const saved = await persistSettings(false);
       if (!saved) return;
+    }
+
+    if (!isBillingConfigured()) {
+      if (showFeedback) setError("尚未配置 Billing AK/SK。");
+      return;
     }
 
     isRefreshingBalance = true;
@@ -944,166 +944,6 @@
         <label><input bind:checked={form.draft} type="checkbox" /> 草稿模式</label>
       </div>
     </div>
-
-    <aside class="panel settings-panel">
-      <div class="panel-header">
-        <div>
-          <p class="panel-kicker">密钥管理</p>
-          <h2>凭证与计费</h2>
-        </div>
-        <button class="secondary-button" disabled={isSavingSettings} on:click={saveSettingsAction}>
-          {#if isSavingSettings}正在保存...{:else}保存{/if}
-        </button>
-      </div>
-
-      <label class="field">
-        <span>Seedance API 密钥</span>
-        <input bind:value={settings.apiKey} placeholder="输入 ARK API 密钥" type="password" />
-      </label>
-
-      <div class="controls-grid two-column">
-        <label class="field">
-          <span>平台</span>
-          <select bind:value={settings.platform}>
-            <option value="volc">火山引擎</option>
-            <option value="byteplus">BytePlus</option>
-          </select>
-        </label>
-
-        <label class="field">
-          <span>轮询间隔</span>
-          <input bind:value={settings.pollInterval} min="1" step="0.5" type="number" />
-        </label>
-      </div>
-
-      <label class="field">
-        <span>模型覆盖</span>
-        <input bind:value={settings.model} placeholder="可选" type="text" />
-      </label>
-
-      <label class="field">
-        <span>Base URL 覆盖</span>
-        <input bind:value={settings.baseUrl} placeholder="可选" type="text" />
-      </label>
-
-      <div class="subpanel">
-        <div class="subpanel-head">
-          <div>
-            <p class="panel-kicker minor">计费</p>
-            <h3>余额查询凭证</h3>
-          </div>
-          <button class="secondary-button" disabled={isRefreshingBalance} on:click={() => refreshBalanceAction()}>
-            {#if isRefreshingBalance}正在刷新...{:else}刷新余额{/if}
-          </button>
-        </div>
-
-        <label class="field">
-          <span>Billing AccessKey</span>
-          <input bind:value={settings.billingAccessKey} placeholder="输入火山计费 AccessKey" type="password" />
-        </label>
-
-        <label class="field">
-          <span>Billing SecretKey</span>
-          <input bind:value={settings.billingSecretKey} placeholder="输入火山计费 SecretKey" type="password" />
-        </label>
-
-        <label class="field">
-          <span>低余额告警阈值</span>
-          <input bind:value={settings.lowBalanceThreshold} min="0" step="1" type="number" />
-        </label>
-
-        <div class={`balance-banner ${hasArrears() ? "danger" : isLowBalance() ? "warn" : "ok"}`}>
-          <strong>{balanceStatusText()}</strong>
-          <span>
-            {#if balance.updatedAt}
-              更新时间：{displayDate(balance.updatedAt)}
-            {:else}
-              等待首次成功同步余额
-            {/if}
-          </span>
-        </div>
-
-        <div class="balance-grid">
-          <div class="balance-card featured">
-            <span class="meta-label">可用余额</span>
-            <strong>{formatAmount(balance.availableBalance)}</strong>
-          </div>
-          <div class="balance-card">
-            <span class="meta-label">现金余额</span>
-            <strong>{formatAmount(balance.cashBalance)}</strong>
-          </div>
-          <div class="balance-card">
-            <span class="meta-label">欠费金额</span>
-            <strong>{formatAmount(balance.arrearsBalance)}</strong>
-          </div>
-          <div class="balance-card">
-            <span class="meta-label">信用额度</span>
-            <strong>{formatAmount(balance.creditLimit)}</strong>
-          </div>
-          <div class="balance-card">
-            <span class="meta-label">冻结金额</span>
-            <strong>{formatAmount(balance.freezeAmount)}</strong>
-          </div>
-          <div class="balance-card">
-            <span class="meta-label">账户 ID</span>
-            <strong>{balance.accountId ?? "--"}</strong>
-          </div>
-        </div>
-      </div>
-
-      <div class="settings-note">
-        所有密钥只保存在当前机器的应用本地数据库中。这里的配置会自动持久化；余额会在手动刷新、应用启动时，以及每个任务进入终态五秒后自动刷新。
-      </div>
-
-      <div class="subpanel">
-        <div class="subpanel-head">
-          <div>
-            <p class="panel-kicker minor">密钥包</p>
-            <h3>导出与导入加密密钥</h3>
-          </div>
-        </div>
-
-        <label class="field">
-          <span>密钥包密码</span>
-          <input bind:value={secretBundlePassword} placeholder="至少 8 个字符" type="password" />
-        </label>
-
-        <div class="secret-actions">
-          <button class="secondary-button" disabled={isExportingSecretBundle} on:click={exportSecretBundleAction}>
-            {#if isExportingSecretBundle}正在导出...{:else}导出加密密钥包{/if}
-          </button>
-          <button class="secondary-button" disabled={!secretBundleExport} on:click={copySecretBundleAction}>
-            复制导出结果
-          </button>
-        </div>
-
-        <label class="field">
-          <span>导出结果</span>
-          <textarea
-            class="secret-box"
-            bind:value={secretBundleExport}
-            placeholder="这里会显示加密后的 base64 密钥包。"
-          ></textarea>
-        </label>
-
-        <label class="field">
-          <span>导入内容</span>
-          <textarea
-            class="secret-box"
-            bind:value={secretBundleImport}
-            placeholder="把之前导出的加密 base64 密钥包粘贴到这里。"
-          ></textarea>
-        </label>
-
-        <button class="secondary-button" disabled={isImportingSecretBundle} on:click={importSecretBundleAction}>
-          {#if isImportingSecretBundle}正在导入...{:else}导入到本地密钥存储{/if}
-        </button>
-
-        <div class="settings-note">
-          导出的字符串会先加密，再编码为 base64 方便传输。真正提供保护的是加密本身，不是 base64。
-        </div>
-      </div>
-    </aside>
   </section>
 
   <section class="panel active-panel">
@@ -1225,6 +1065,172 @@
     {:else}
       <div class="empty-state">当前筛选条件下还没有历史记录。</div>
     {/if}
+  </section>
+
+  <section class="panel settings-panel settings-bottom">
+    <div class="panel-header">
+      <div>
+        <p class="panel-kicker">密钥管理</p>
+        <h2>凭证与计费</h2>
+      </div>
+      <button class="secondary-button" disabled={isSavingSettings} on:click={saveSettingsAction}>
+        {#if isSavingSettings}正在保存...{:else}立即保存{/if}
+      </button>
+    </div>
+
+    <div class="settings-grid">
+      <div class="settings-column">
+        <label class="field">
+          <span>Seedance API 密钥</span>
+          <input bind:value={settings.apiKey} placeholder="输入 ARK API 密钥" type="password" />
+        </label>
+
+        <div class="controls-grid two-column">
+          <label class="field">
+            <span>平台</span>
+            <select bind:value={settings.platform}>
+              <option value="volc">火山引擎</option>
+              <option value="byteplus">BytePlus</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>轮询间隔</span>
+            <input bind:value={settings.pollInterval} min="1" step="0.5" type="number" />
+          </label>
+        </div>
+
+        <label class="field">
+          <span>模型覆盖</span>
+          <input bind:value={settings.model} placeholder="可选" type="text" />
+        </label>
+
+        <label class="field">
+          <span>Base URL 覆盖</span>
+          <input bind:value={settings.baseUrl} placeholder="可选" type="text" />
+        </label>
+
+        <div class="settings-note">
+          所有密钥只保存在当前机器的应用本地数据库中。这里的配置会自动持久化；余额会在手动刷新、应用启动时，以及每个任务进入终态五秒后自动刷新。
+        </div>
+      </div>
+
+      <div class="settings-column">
+        <div class="subpanel">
+          <div class="subpanel-head">
+            <div>
+              <p class="panel-kicker minor">计费</p>
+              <h3>余额查询凭证</h3>
+            </div>
+            <button class="secondary-button" disabled={isRefreshingBalance} on:click={() => refreshBalanceAction()}>
+              {#if isRefreshingBalance}正在刷新...{:else}刷新余额{/if}
+            </button>
+          </div>
+
+          <label class="field">
+            <span>Billing AccessKey</span>
+            <input bind:value={settings.billingAccessKey} placeholder="输入火山计费 AccessKey" type="password" />
+          </label>
+
+          <label class="field">
+            <span>Billing SecretKey</span>
+            <input bind:value={settings.billingSecretKey} placeholder="输入火山计费 SecretKey" type="password" />
+          </label>
+
+          <label class="field">
+            <span>低余额告警阈值</span>
+            <input bind:value={settings.lowBalanceThreshold} min="0" step="1" type="number" />
+          </label>
+
+          <div class={`balance-banner ${hasArrears() ? "danger" : isLowBalance() ? "warn" : "ok"}`}>
+            <strong>{balanceStatusText()}</strong>
+            <span>
+              {#if balance.updatedAt}
+                更新时间：{displayDate(balance.updatedAt)}
+              {:else}
+                等待首次成功同步余额
+              {/if}
+            </span>
+          </div>
+
+          <div class="balance-grid">
+            <div class="balance-card featured">
+              <span class="meta-label">可用余额</span>
+              <strong>{formatAmount(balance.availableBalance)}</strong>
+            </div>
+            <div class="balance-card">
+              <span class="meta-label">现金余额</span>
+              <strong>{formatAmount(balance.cashBalance)}</strong>
+            </div>
+            <div class="balance-card">
+              <span class="meta-label">欠费金额</span>
+              <strong>{formatAmount(balance.arrearsBalance)}</strong>
+            </div>
+            <div class="balance-card">
+              <span class="meta-label">信用额度</span>
+              <strong>{formatAmount(balance.creditLimit)}</strong>
+            </div>
+            <div class="balance-card">
+              <span class="meta-label">冻结金额</span>
+              <strong>{formatAmount(balance.freezeAmount)}</strong>
+            </div>
+            <div class="balance-card">
+              <span class="meta-label">账户 ID</span>
+              <strong>{balance.accountId ?? "--"}</strong>
+            </div>
+          </div>
+        </div>
+
+        <div class="subpanel">
+          <div class="subpanel-head">
+            <div>
+              <p class="panel-kicker minor">密钥包</p>
+              <h3>导出与导入加密密钥</h3>
+            </div>
+          </div>
+
+          <label class="field">
+            <span>密钥包密码</span>
+            <input bind:value={secretBundlePassword} placeholder="至少 8 个字符" type="password" />
+          </label>
+
+          <div class="secret-actions">
+            <button class="secondary-button" disabled={isExportingSecretBundle} on:click={exportSecretBundleAction}>
+              {#if isExportingSecretBundle}正在导出...{:else}导出加密密钥包{/if}
+            </button>
+            <button class="secondary-button" disabled={!secretBundleExport} on:click={copySecretBundleAction}>
+              复制导出结果
+            </button>
+          </div>
+
+          <label class="field">
+            <span>导出结果</span>
+            <textarea
+              class="secret-box"
+              bind:value={secretBundleExport}
+              placeholder="这里会显示加密后的 base64 密钥包。"
+            ></textarea>
+          </label>
+
+          <label class="field">
+            <span>导入内容</span>
+            <textarea
+              class="secret-box"
+              bind:value={secretBundleImport}
+              placeholder="把之前导出的加密 base64 密钥包粘贴到这里。"
+            ></textarea>
+          </label>
+
+          <button class="secondary-button" disabled={isImportingSecretBundle} on:click={importSecretBundleAction}>
+            {#if isImportingSecretBundle}正在导入...{:else}导入到本地密钥存储{/if}
+          </button>
+
+          <div class="settings-note">
+            导出的字符串会先加密，再编码为 base64 方便传输。真正提供保护的是加密本身，不是 base64。
+          </div>
+        </div>
+      </div>
+    </div>
   </section>
 
   {#if drawerOpen && selectedGeneration}
@@ -1487,7 +1493,7 @@
 
   .top-grid {
     display: grid;
-    grid-template-columns: minmax(0, 2.1fr) minmax(320px, 0.95fr);
+    grid-template-columns: 1fr;
     gap: 1.25rem;
   }
 
@@ -1750,6 +1756,23 @@
 
   .balance-card strong {
     font-size: 1.1rem;
+  }
+
+  .settings-bottom {
+    display: grid;
+    gap: 1rem;
+  }
+
+  .settings-grid {
+    display: grid;
+    grid-template-columns: minmax(320px, 0.9fr) minmax(0, 1.4fr);
+    gap: 1rem;
+  }
+
+  .settings-column {
+    display: grid;
+    gap: 1rem;
+    align-content: start;
   }
 
   .secret-actions {
@@ -2060,7 +2083,8 @@
 
   @media (max-width: 1180px) {
     .hero,
-    .top-grid {
+    .top-grid,
+    .settings-grid {
       grid-template-columns: 1fr;
     }
 
